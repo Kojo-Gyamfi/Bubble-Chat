@@ -1,0 +1,18 @@
+# secrets
+*.keystore
+*.jks
+keystore.properties
+service-account*.json
+.env*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
