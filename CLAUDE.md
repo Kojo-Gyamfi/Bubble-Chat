@@ -121,7 +121,7 @@ usage/{uid}_{YYYY-MM-DD}   { requests, inputTokens, outputTokens }
 ### Security rules (firestore.rules)
 
 - `users/{uid}/**`: read only if `request.auth.uid == uid` and the user is allowed (claim `allowed == true` or allowlist doc for `request.auth.token.email`).
-- `users/{uid}/conversations/{convId}`: client may create and rename (title) its own conversations; `messages/**` is **read-only for clients**. The server writes all messages with the admin SDK.
+- Clients never write: the server creates conversations on the first message and writes all messages with the admin SDK. `users/**` is read-only for clients.
 - `allowlist/**`: no client read/write; managed from the Firebase console.
 - `usage/**`: no client access; written by the server with admin SDK.
 

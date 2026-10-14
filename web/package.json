@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "allow": "node --env-file=.env.local scripts/allow-user.mts",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@serwist/turbopack": "^9.5.13",
