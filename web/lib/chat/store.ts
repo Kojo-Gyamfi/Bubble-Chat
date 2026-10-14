@@ -4,6 +4,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import type { AuthedUser } from "@/lib/auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { titleFrom } from "@/lib/chat/schema";
+import type { LlmMessage, LlmUsage } from "@/lib/llm";
+import { usageDocIds } from "@/lib/usage";
 
 // All message writes happen here, server-side. Clients only read.
 
@@ -46,16 +48,54 @@ export async function appendUserMessage(
   });
 }
 
+/** Most recent `limit` messages of a conversation, oldest first, excluding `excludeId`. */
+export async function loadHistory(
+  uid: string,
+  conversationId: string,
+  limit: number,
+  excludeId: string,
+): Promise<LlmMessage[]> {
+  const snap = await conversationRef(uid, conversationId)
+    .collection("messages")
+    .orderBy("createdAt", "desc")
+    .limit(limit)
+    .get();
+  return snap.docs
+    .filter((d) => d.id !== excludeId)
+    .reverse()
+    .map((d) => ({
+      role: d.get("role") as LlmMessage["role"],
+      content: d.get("content") as string,
+    }));
+}
+
+/** Saves the reply and its token usage in one batch. */
 export async function appendAssistantMessage(
   uid: string,
   conversationId: string,
   messageId: string,
   content: string,
+  usage?: { day: string; tokens: LlmUsage },
 ): Promise<void> {
+  const db = adminDb();
   const convRef = conversationRef(uid, conversationId);
   const now = FieldValue.serverTimestamp();
-  const batch = adminDb().batch();
-  batch.set(convRef.collection("messages").doc(messageId), { role: "assistant", content, createdAt: now });
+  const batch = db.batch();
+  batch.set(convRef.collection("messages").doc(messageId), {
+    role: "assistant",
+    content,
+    createdAt: now,
+    ...(usage ? { tokens: usage.tokens.outputTokens } : {}),
+  });
   batch.update(convRef, { updatedAt: now, messageCount: FieldValue.increment(1) });
+  if (usage) {
+    const ids = usageDocIds(uid, usage.day);
+    const tokens = {
+      inputTokens: FieldValue.increment(usage.tokens.inputTokens),
+      outputTokens: FieldValue.increment(usage.tokens.outputTokens),
+    };
+    batch.set(db.doc(ids.user), tokens, { merge: true });
+    batch.set(db.doc(ids.global), tokens, { merge: true });
+  }
   await batch.commit();
 }

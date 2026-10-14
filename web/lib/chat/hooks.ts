@@ -90,7 +90,8 @@ export function friendlyError(err: unknown): string {
   if (err instanceof ChatRequestError) {
     if (err.status === 401) return "Your session expired. Sign in again.";
     if (err.status === 403) return "This account isn't allowed to use the chat.";
-    if (err.status === 429) return err.message;
+    // Limit reached / AI unavailable: the server's message is meant for users.
+    if (err.status === 429 || err.status === 503) return err.message;
   }
   return "Something went wrong. Please try again.";
 }
