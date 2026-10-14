@@ -7,7 +7,7 @@ See [CLAUDE.md](CLAUDE.md) for the full plan.
 ## Status
 
 - [x] Phase 1: PWA with Google login, live history, mocked streaming replies
-- [ ] Phase 2: real LLM (Gemini → Groq fallback), usage limits
+- [x] Phase 2: real LLM (Gemini → Groq fallback), usage limits, delete
 - [ ] Phase 3: `/overlay` page + JS bridge
 - [ ] Phase 4: Android bubble app
 - [ ] Phase 5: signing, distribution, deploy
@@ -26,7 +26,7 @@ See [CLAUDE.md](CLAUDE.md) for the full plan.
    [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\service-account.json"))
    ```
 6. `copy web\.env.example web\.env.local` and fill in the Firebase values and
-   `FIREBASE_SERVICE_ACCOUNT_BASE64`. (LLM keys aren't needed until Phase 2.)
+   `FIREBASE_SERVICE_ACCOUNT_BASE64`.
 7. Deploy the security rules and allowlist yourself:
    ```powershell
    cd web
@@ -36,6 +36,18 @@ See [CLAUDE.md](CLAUDE.md) for the full plan.
    npm run allow -- add you@gmail.com
    ```
 
+## AI provider keys (free)
+
+- **Gemini** (default): create a key at [Google AI Studio](https://aistudio.google.com/apikey) →
+  `GOOGLE_GENERATIVE_AI_API_KEY`. Check your real free-tier requests/day there and set
+  `GLOBAL_DAILY_REQUEST_LIMIT` below it.
+- **Groq** (automatic fallback when Gemini is rate-limited or down): key from
+  [console.groq.com](https://console.groq.com/keys) → `GROQ_API_KEY`.
+- No keys yet? `LLM_PROVIDER=mock` streams canned replies.
+
+Limits reset at 00:00 UTC. Counters live in Firestore `usage/{uid}_{YYYY-MM-DD}` and
+`usage/global_{YYYY-MM-DD}`.
+
 ## Run locally
 
 ```powershell
@@ -43,6 +55,8 @@ cd web
 npm install
 npm run dev        # http://localhost:3000
 ```
+
+Tests: `npm test` (unit) and `npm run test:rules` (Firestore rules, starts the emulator; needs Java).
 
 Allowlist management: `npm run allow -- add|remove|list [email]`. Removing a
 user also revokes all their sessions.
