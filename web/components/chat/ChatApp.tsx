@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Composer } from "@/components/chat/Composer";
 import { MessageList } from "@/components/chat/MessageList";
 import { Sidebar } from "@/components/chat/Sidebar";
+import { deleteConversation } from "@/lib/chat/client";
 import { useChat, useConversations } from "@/lib/chat/hooks";
 import { signOut } from "@/lib/firebase/client";
 
@@ -28,12 +29,19 @@ export function ChatApp({ user }: { user: User }) {
     if (id !== activeId) setActiveId(id);
   }
 
+  function handleDelete(id: string) {
+    if (id === activeId) setActiveId(null);
+    // The snapshot listener removes it from the list once deleted.
+    deleteConversation(user, id).catch((err) => console.error("Delete failed", err));
+  }
+
   const sidebar = (
     <Sidebar
       conversations={conversations}
       activeId={activeId}
       email={user.email}
       onSelect={select}
+      onDelete={handleDelete}
       onNewChat={() => select(null)}
       onSignOut={() => signOut()}
     />

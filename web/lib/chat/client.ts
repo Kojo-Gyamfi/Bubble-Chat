@@ -22,6 +22,15 @@ export function newMessageId(uid: string, conversationId: string): string {
   return doc(collection(db(), "users", uid, "conversations", conversationId, "messages")).id;
 }
 
+export async function deleteConversation(user: User, conversationId: string): Promise<void> {
+  const token = await user.getIdToken();
+  const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new ChatRequestError(res.status, `Delete failed (${res.status})`);
+}
+
 export async function streamChat(
   user: User,
   request: ChatRequest,
