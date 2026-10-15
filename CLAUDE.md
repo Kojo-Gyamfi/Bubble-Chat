@@ -72,7 +72,7 @@ ChatBot/                    # repo root = D:\NextJs\ChatBot
   android/                  # Kotlin, Android Studio project, minSdk 26, targetSdk 35
     app/src/main/
       AndroidManifest.xml
-      java/com/<you>/bubble/
+      java/com/bubblechat/app/   # package com.bubblechat.app (AGP 9 built-in Kotlin, compileSdk 36)
         MainActivity.kt         # permission flow + start/stop service
         OverlayService.kt       # foreground service, owns the WindowManager views
         BubbleView.kt           # draggable circle

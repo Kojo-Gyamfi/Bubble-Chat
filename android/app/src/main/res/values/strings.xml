@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bubble Chat</string>
+    <string name="tagline">Your AI chat, floating over any app.</string>
+    <string name="version_label">Version %1$s</string>
+
+    <string name="section_setup">Setup</string>
+    <string name="overlay_title">Display over other apps</string>
+    <string name="overlay_desc">Required so the bubble can float on top of other apps.</string>
+    <string name="notifications_title">Notifications</string>
+    <string name="notifications_desc">Shows the small \"Bubble is running\" notification with a Stop button.</string>
+    <string name="status_allowed">Allowed</string>
+    <string name="status_needed">Needed</string>
+    <string name="action_allow">Allow</string>
+
+    <string name="start_bubble">Start bubble</string>
+    <string name="stop_bubble">Stop bubble</string>
+    <string name="bubble_running">The bubble is running. Tap it to chat; drag it to move.</string>
+    <string name="bubble_stopped">The bubble is off.</string>
+    <string name="need_overlay_first">Allow \"Display over other apps\" first.</string>
+
+    <string name="section_account">Account</string>
+    <string name="account_desc">Sign in by creating a link in the web app (sidebar → Link bubble app) and opening it on this phone.</string>
+    <string name="relink">Link or re-link account</string>
+    <string name="open_web_app">Open web app</string>
+    <string name="linked_toast">Account link received. Open the bubble to finish signing in.</string>
+    <string name="link_invalid">That link looks incomplete. Create a new one in the web app.</string>
+
+    <string name="section_background">Keep it running</string>
+    <string name="battery_desc">Some phones stop background apps to save battery, which closes the bubble.</string>
+    <string name="battery_action">Allow background use</string>
+    <string name="battery_ok">Battery optimization is off for Bubble Chat.</string>
+    <string name="oem_help">On Xiaomi, Oppo, Vivo, Huawei, Realme or OnePlus, also open Settings → Apps → Bubble Chat and turn on Autostart and \"Display pop-up windows while running in the background\" (names vary by phone).</string>
+    <string name="open_app_settings">Open app settings</string>
+
+    <string name="notif_channel">Bubble</string>
+    <string name="notif_channel_desc">Keeps the chat bubble available over other apps.</string>
+    <string name="notif_title">Bubble is running</string>
+    <string name="notif_text">Tap the bubble to chat.</string>
+    <string name="notif_stop">Stop</string>
+
+    <string name="panel_offline">Can\'t reach Bubble right now.</string>
+    <string name="panel_retry">Try again</string>
+    <string name="bubble_content_desc">Open Bubble chat</string>
+</resources>

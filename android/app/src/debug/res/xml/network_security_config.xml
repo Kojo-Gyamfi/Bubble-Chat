@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug only: allow http:// to the local Next.js dev server
+     (emulator 10.0.2.2 or the PC's LAN IP). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
