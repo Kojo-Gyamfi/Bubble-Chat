@@ -8,9 +8,12 @@ const MAX_HEIGHT_PX = 200;
 export function Composer({
   onSend,
   disabled,
+  readClipboard,
 }: {
   onSend: (text: string) => void;
   disabled?: boolean;
+  /** Shows a paste button that inserts the clipboard text (bubble overlay). */
+  readClipboard?: () => Promise<string>;
 }) {
   const [text, setText] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
@@ -32,6 +35,13 @@ export function Composer({
     setText("");
   }
 
+  async function paste() {
+    const clip = (await readClipboard?.())?.trim();
+    if (!clip) return;
+    setText((t) => (t ? `${t}${/\s$/.test(t) ? "" : " "}${clip}` : clip).slice(0, MAX_MESSAGE_CHARS));
+    input.current?.focus();
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     // Enter sends on devices with a real keyboard; on touch it inserts a newline.
     const coarse = window.matchMedia("(pointer: coarse)").matches;
@@ -43,6 +53,18 @@ export function Composer({
   return (
     <form onSubmit={submit} className="border-t border-border bg-background px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto flex max-w-3xl items-end gap-2">
+        {readClipboard && (
+          <button
+            type="button"
+            onClick={paste}
+            aria-label="Paste from clipboard"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border hover:bg-muted"
+          >
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path d="M9 4h6v3H9zM8 5H6v15h12V5h-2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
         <textarea
           ref={input}
           value={text}

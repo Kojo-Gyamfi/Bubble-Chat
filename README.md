@@ -8,7 +8,7 @@ See [CLAUDE.md](CLAUDE.md) for the full plan.
 
 - [x] Phase 1: PWA with Google login, live history, mocked streaming replies
 - [x] Phase 2: real LLM (Gemini → Groq fallback), usage limits, delete
-- [ ] Phase 3: `/overlay` page + JS bridge
+- [x] Phase 3: `/overlay` page + JS bridge, bubble linking
 - [ ] Phase 4: Android bubble app
 - [ ] Phase 5: signing, distribution, deploy
 
@@ -60,6 +60,21 @@ Tests: `npm test` (unit) and `npm run test:rules` (Firestore rules, starts the e
 
 Allowlist management: `npm run allow -- add|remove|list [email]`. Removing a
 user also revokes all their sessions.
+
+## Bubble linking (Phase 3)
+
+- `/overlay` is the compact chat the Android app loads in its WebView. In Chrome it uses
+  your normal session, so you can test it with DevTools device mode at 320×480.
+- **Link bubble app** (sidebar → `/link`) creates a one-hour `bubble://link?token=…` link
+  (5 per user per day). The app passes the token to `/overlay`, which signs in with it.
+- **Unlink all devices** on the same page revokes every session of the account.
+- The JS bridge contract lives in `web/lib/bridge.ts` and must match `JsBridge.kt`.
+
+## Local development with emulators
+
+To try things without touching the real Firebase project, start the emulators and set the
+variables listed at the bottom of `web/.env.example`. Sign in through `/overlay` with a
+token from `/api/device-token`, or create users in the Auth emulator.
 
 ## Deploying (Vercel Hobby)
 

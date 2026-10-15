@@ -14,7 +14,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user) router.replace("/");
+    if (user) router.replace(safeNext(window.location.search));
   }, [user, router]);
 
   if (user !== null) return <FullScreenSpinner />;
@@ -35,7 +35,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="safe-area flex h-dvh flex-col items-center justify-center gap-6 p-6">
+    <main className="safe-area flex h-dvh flex-col items-center justify-center gap-6">
       <div className="text-center">
         <h1 className="text-2xl font-semibold">Bubble Chat</h1>
         <p className="mt-1 text-sm opacity-60">Invite-only. Sign in with your Google account.</p>
@@ -52,6 +52,12 @@ export default function LoginPage() {
       {error && <p className="text-sm text-red-600">{error}</p>}
     </main>
   );
+}
+
+/** `?next=` target; same-site paths only (no open redirect). */
+function safeNext(search: string): string {
+  const next = new URLSearchParams(search).get("next");
+  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
 }
 
 function GoogleIcon() {

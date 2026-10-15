@@ -11,6 +11,11 @@ function adminApp(): App {
 
   const encoded = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
   if (!encoded) {
+    // Against the local emulators no credentials are needed (the admin SDK
+    // picks up FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST itself).
+    if (process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+      return initializeApp({ projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID });
+    }
     throw new Error("FIREBASE_SERVICE_ACCOUNT_BASE64 is not set");
   }
   const serviceAccount = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));

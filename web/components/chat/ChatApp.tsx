@@ -103,7 +103,7 @@ export function ChatApp({ user }: { user: User }) {
 
 function NotAllowed({ email }: { email: string | null }) {
   return (
-    <main className="safe-area flex h-dvh items-center justify-center p-6 text-center">
+    <main className="safe-area flex h-dvh items-center justify-center text-center">
       <div className="max-w-sm space-y-3">
         <h1 className="text-lg font-semibold">Not on the guest list</h1>
         <p className="text-sm opacity-70">

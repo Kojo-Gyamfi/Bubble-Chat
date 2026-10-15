@@ -43,6 +43,20 @@ export function usageDocIds(uid: string, day: string) {
   return { user: `usage/${uid}_${day}`, global: `usage/global_${day}` };
 }
 
+export const DEVICE_LINKS_PER_DAY = 5;
+
+/** Counts one bubble link token against the user's daily cap; false if over it. */
+export async function consumeDeviceLink(uid: string, day: string): Promise<boolean> {
+  const db = adminDb();
+  const ref = db.doc(usageDocIds(uid, day).user);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (((snap.get("deviceLinks") as number | undefined) ?? 0) >= DEVICE_LINKS_PER_DAY) return false;
+    tx.set(ref, { uid, day, deviceLinks: FieldValue.increment(1) }, { merge: true });
+    return true;
+  });
+}
+
 /**
  * Counts one request against the per-user and global daily caps, atomically
  * and *before* calling the model, so failed or parallel requests can't

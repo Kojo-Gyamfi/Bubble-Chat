@@ -4,6 +4,7 @@ import type { NextConfig } from "next";
 const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["untreacherous-leontine-nonpejoratively.ngrok-free.dev"],
   // cacheComponents is off on purpose: the app is client-rendered on top of
   // Firebase, and the Serwist Turbopack route relies on segment config
   // (`dynamic`, `revalidate`) that cacheComponents rejects.

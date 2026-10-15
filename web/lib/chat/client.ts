@@ -22,13 +22,38 @@ export function newMessageId(uid: string, conversationId: string): string {
   return doc(collection(db(), "users", uid, "conversations", conversationId, "messages")).id;
 }
 
-export async function deleteConversation(user: User, conversationId: string): Promise<void> {
+/** fetch with the user's ID token; throws ChatRequestError (with the server's message) on non-2xx. */
+async function authedFetch(user: User, url: string, init: RequestInit = {}): Promise<Response> {
   const token = await user.getIdToken();
-  const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await fetch(url, {
+    ...init,
+    headers: { ...init.headers, Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new ChatRequestError(res.status, `Delete failed (${res.status})`);
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new ChatRequestError(res.status, data?.error ?? `Request failed (${res.status})`);
+  }
+  return res;
+}
+
+export async function deleteConversation(user: User, conversationId: string): Promise<void> {
+  await authedFetch(user, `/api/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
+}
+
+export interface DeviceLink {
+  deepLink: string;
+  expiresAt: number;
+}
+
+/** Mints a one-hour link for the bubble app (bubble://link?token=…). */
+export async function createDeviceLink(user: User): Promise<DeviceLink> {
+  const res = await authedFetch(user, "/api/device-token", { method: "POST" });
+  return (await res.json()) as DeviceLink;
+}
+
+/** Signs out every session of this account: bubble app and all browsers. */
+export async function revokeAllSessions(user: User): Promise<void> {
+  await authedFetch(user, "/api/revoke", { method: "POST" });
 }
 
 export async function streamChat(
@@ -36,17 +61,12 @@ export async function streamChat(
   request: ChatRequest,
   onChunk: (chunk: string) => void,
 ): Promise<void> {
-  const token = await user.getIdToken();
-  const res = await fetch("/api/chat", {
+  const res = await authedFetch(user, "/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
-
-  if (!res.ok || !res.body) {
-    const data = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new ChatRequestError(res.status, data?.error ?? `Request failed (${res.status})`);
-  }
+  if (!res.body) throw new ChatRequestError(res.status, "Empty response");
 
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   for (;;) {

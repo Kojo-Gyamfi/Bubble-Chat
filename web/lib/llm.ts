@@ -2,7 +2,7 @@ import "server-only";
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createGroq } from "@ai-sdk/groq";
-import { type LanguageModel, streamText } from "ai";
+import { APICallError, type LanguageModel, streamText } from "ai";
 import { HttpError } from "@/lib/auth";
 import { mockReply } from "@/lib/chat/mock";
 
@@ -28,7 +28,7 @@ export interface LlmProvider {
 }
 
 const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
-const DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
+const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
 
 /** Wraps an AI SDK model. Provider errors (e.g. 429) are thrown, not swallowed. */
 export function aiSdkProvider(
@@ -88,7 +88,11 @@ function groqProvider(): LlmProvider | null {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
   const groq = createGroq({ apiKey });
-  return aiSdkProvider("groq", groq(process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL));
+  // gpt-oss reasons before answering; low effort keeps it inside maxOutputTokens.
+  // Models without reasoning ignore this (the SDK logs a warning).
+  return aiSdkProvider("groq", groq(process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL), {
+    reasoning: "low",
+  });
 }
 
 /** Provider order from LLM_PROVIDER: gemini (→ groq fallback), groq, or mock. */
@@ -104,6 +108,12 @@ export function providerChain(): LlmProvider[] {
     throw new HttpError(503, "The chat isn't configured yet: no AI provider key is set.");
   }
   return chain;
+}
+
+/** One-line summary; AI SDK errors carry full request/response dumps. */
+function describeError(err: unknown): string {
+  if (APICallError.isInstance(err)) return `HTTP ${err.statusCode ?? "?"}: ${err.message}`;
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -126,7 +136,7 @@ export async function* streamWithFallback(
       return;
     } catch (err) {
       if (started || i === chain.length - 1) throw err;
-      console.warn(`LLM provider "${provider.name}" failed; falling back to "${chain[i + 1].name}"`, err);
+      console.warn(`LLM provider "${provider.name}" failed (${describeError(err)}); falling back to "${chain[i + 1].name}"`);
     }
   }
 }

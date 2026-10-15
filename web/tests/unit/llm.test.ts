@@ -97,6 +97,12 @@ describe("aiSdkProvider", () => {
     expect(model.doStreamCalls[0].maxOutputTokens).toBe(100);
   });
 
+  it("passes the reasoning effort through to the model call", async () => {
+    const model = streamingModel("ok");
+    await collect(aiSdkProvider("groq", model, { reasoning: "low" }).stream(messages, opts));
+    expect(model.doStreamCalls[0].reasoning).toBe("low");
+  });
+
   // The AI SDK's textStream swallows errors; the adapter must surface them so
   // a rate-limited provider triggers the fallback.
   it("throws when the provider rejects the request (e.g. 429)", async () => {

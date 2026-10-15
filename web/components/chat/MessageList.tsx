@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Markdown } from "@/components/chat/Markdown";
+import { bridge } from "@/lib/bridge";
 import type { DisplayMessage } from "@/lib/chat/hooks";
 
 const STICK_THRESHOLD_PX = 80;
@@ -83,7 +84,30 @@ function MessageBubble({ message }: { message: DisplayMessage }) {
   return (
     <div className="max-w-full">
       <Markdown>{message.content}</Markdown>
+      {!message.pending && <CopyButton text={message.content} />}
     </div>
+  );
+}
+
+// Long-press text selection is unreliable in the bubble WebView, so answers
+// get an explicit copy button (native clipboard via the bridge there).
+function CopyButton({ text }: { text: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  async function copy() {
+    const ok = await bridge.copyText(text);
+    setState(ok ? "copied" : "failed");
+    setTimeout(() => setState("idle"), 1500);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="mt-1 rounded px-1.5 py-0.5 text-xs opacity-50 hover:bg-muted hover:opacity-100"
+    >
+      {state === "copied" ? "Copied" : state === "failed" ? "Couldn't copy" : "Copy"}
+    </button>
   );
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type { Conversation } from "@/lib/chat/schema";
 
@@ -81,6 +82,13 @@ export function Sidebar({
           </li>
         ))}
       </ul>
+
+      <Link
+        href="/link"
+        className="mx-2 mb-2 rounded-lg px-3 py-2 text-sm opacity-80 hover:bg-background hover:opacity-100"
+      >
+        Link bubble app
+      </Link>
 
       <div className="flex items-center justify-between gap-2 border-t border-border p-3 text-xs">
         <span className="truncate opacity-60">{email}</span>
