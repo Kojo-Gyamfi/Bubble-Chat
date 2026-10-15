@@ -28,14 +28,41 @@ export async function requireUser(req: Request): Promise<AuthedUser> {
 
   let token: DecodedIdToken;
   try {
-    // checkRevoked: "Unlink all devices" revokes refresh tokens.
-    token = await adminAuth().verifyIdToken(match[1], true);
+    // Signature/expiry only; revocation is checked below with a short cache,
+    // instead of verifyIdToken(…, true)'s Auth lookup on every request.
+    token = await adminAuth().verifyIdToken(match[1]);
   } catch {
     throw new HttpError(401, "Invalid or revoked token");
   }
+  if (await isRevoked(token)) throw new HttpError(401, "Invalid or revoked token");
 
   if (!(await isAllowed(token))) throw new HttpError(403, "This account is not on the allowlist");
   return { uid: token.uid, email: token.email ?? null, name: token.name ?? null };
+}
+
+// ---- revocation ("Unlink all devices") ----
+
+const REVOCATION_TTL_MS = 5 * 60 * 1000;
+const revocation = new Map<string, { validSinceMs: number; disabled: boolean; fetchedAt: number }>();
+
+/** Same rule as verifyIdToken's checkRevoked, but the user lookup is cached per instance. */
+async function isRevoked(token: DecodedIdToken): Promise<boolean> {
+  let entry = revocation.get(token.uid);
+  if (!entry || Date.now() - entry.fetchedAt > REVOCATION_TTL_MS) {
+    const user = await adminAuth().getUser(token.uid);
+    entry = {
+      validSinceMs: user.tokensValidAfterTime ? new Date(user.tokensValidAfterTime).getTime() : 0,
+      disabled: user.disabled,
+      fetchedAt: Date.now(),
+    };
+    revocation.set(token.uid, entry);
+  }
+  return entry.disabled || token.auth_time * 1000 < entry.validSinceMs;
+}
+
+/** Call after revoking a user's sessions so this instance re-checks immediately. */
+export function forgetRevocationState(uid: string): void {
+  revocation.delete(uid);
 }
 
 const backfilled = new Set<string>();

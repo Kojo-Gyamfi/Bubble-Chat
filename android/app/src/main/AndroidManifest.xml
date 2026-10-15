@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Reload the chat automatically when the network comes back. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- "Display over other apps": granted by the user on a Settings screen, not a dialog. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

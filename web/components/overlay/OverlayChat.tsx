@@ -46,7 +46,7 @@ export function OverlayChat({ user }: { user: User }) {
   return (
     <div className="flex h-dvh flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border pr-1 pl-3">
-        <Logo className="size-5 shrink-0" />
+        <Logo className="size-7" />
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
         <IconButton icon={SquarePen} label="New chat" size="sm" onClick={() => setSelected(null)} />
         {native && <IconButton icon={Minus} label="Minimize" size="sm" onClick={() => bridge.minimize()} />}

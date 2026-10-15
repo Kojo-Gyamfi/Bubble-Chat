@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { FullScreenSpinner } from "@/components/Spinner";
-import { Logo } from "@/components/ui";
+import { Credit, Logo } from "@/components/ui";
 import { signInWithGoogle } from "@/lib/firebase/client";
 
 export default function LoginPage() {
@@ -39,7 +39,7 @@ export default function LoginPage() {
   return (
     <main className="safe-area flex h-dvh flex-col items-center justify-center">
       <div className="flex w-full max-w-sm flex-col items-center text-center animate-fade-up">
-        <Logo className="size-14" />
+        <Logo className="size-24" />
         <h1 className="mt-6 text-[26px] font-semibold tracking-tight">Welcome to Bubble</h1>
         <p className="mt-2 text-[15px] text-muted-foreground">Your private AI chat. Sign in to continue.</p>
 
@@ -61,6 +61,7 @@ export default function LoginPage() {
         )}
 
         <p className="mt-10 text-xs text-muted-foreground">Invite only. Access is limited to approved accounts.</p>
+        <Credit className="mt-1.5" />
       </div>
     </main>
   );

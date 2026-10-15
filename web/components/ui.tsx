@@ -1,22 +1,28 @@
 "use client";
 
 import { Check, Copy, type LucideIcon } from "lucide-react";
+import Image from "next/image";
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from "react";
 import { bridge } from "@/lib/bridge";
 
-/** Brand mark: blue rounded square with a chat bubble (matches the app icon). */
+/** Brand mark: the robot chat bubble (public/brand/logo-mark.png, transparent, 512×512). */
 export function Logo({ className = "size-7" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 100 100" className={className} aria-hidden="true">
-      <rect width="100" height="100" rx="24" fill="#2563eb" />
-      <path fill="#fff" d="M50 20a27 27 0 1 1-14.2 50L25 79l6-19.5A27 27 0 0 1 50 20z" />
-      <g fill="#2563eb">
-        <circle cx="39" cy="47" r="3.8" />
-        <circle cx="50" cy="47" r="3.8" />
-        <circle cx="61" cy="47" r="3.8" />
-      </g>
-    </svg>
+    <Image
+      src="/brand/logo-mark.png"
+      alt=""
+      width={512}
+      height={512}
+      unoptimized
+      priority
+      className={`shrink-0 object-contain ${className}`}
+    />
   );
+}
+
+/** Small "Built by Nana Kojo" credit line. */
+export function Credit({ className = "" }: { className?: string }) {
+  return <p className={`text-xs text-muted-foreground ${className}`}>Built by Nana Kojo</p>;
 }
 
 type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {

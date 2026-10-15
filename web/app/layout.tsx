@@ -16,7 +16,9 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Bubble Chat",
-  description: "A private chatbot for friends",
+  description: "A private AI chat, built by Nana Kojo",
+  authors: [{ name: "Kwadwo Gyamfi (Nana Kojo)" }],
+  creator: "Kwadwo Gyamfi (Nana Kojo)",
   appleWebApp: { capable: true, title: "Bubble Chat", statusBarStyle: "default" },
 };
 

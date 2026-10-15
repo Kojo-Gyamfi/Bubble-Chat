@@ -4,7 +4,7 @@ import { AlertCircle, ArrowLeft, Check, Copy, ExternalLink, Loader2, Smartphone,
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { PrimaryButton, SecondaryButton } from "@/components/ui";
+import { Credit, PrimaryButton, SecondaryButton } from "@/components/ui";
 import { bridge } from "@/lib/bridge";
 import { createDeviceLink, type DeviceLink, revokeAllSessions } from "@/lib/chat/client";
 import { friendlyError } from "@/lib/chat/hooks";
@@ -152,6 +152,8 @@ export default function LinkBubblePage() {
           </div>
         </div>
       </section>
+
+      <Credit className="mt-10 text-center" />
     </main>
   );
 }

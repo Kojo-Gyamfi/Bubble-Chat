@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         binding.relink.setOnClickListener { openUrl("${BuildConfig.BASE_URL}/link") }
         binding.openWebApp.setOnClickListener { openUrl(BuildConfig.BASE_URL) }
         binding.battery.setOnClickListener { askToIgnoreBatteryOptimizations() }
+        binding.unusedApps.setOnClickListener { openUnusedAppSettings() }
         binding.appSettings.setOnClickListener {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
@@ -145,6 +146,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Android 11+: "Pause app activity if unused" would eventually stop the bubble. */
+    private fun openUnusedAppSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        try {
+            startActivity(Intent(Intent.ACTION_AUTO_REVOKE_PERMISSIONS, Uri.fromParts("package", packageName, null)))
+        } catch (e: ActivityNotFoundException) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+    }
+
     private fun openUrl(url: String) {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -178,6 +189,11 @@ class MainActivity : AppCompatActivity() {
         val unrestricted = power.isIgnoringBatteryOptimizations(packageName)
         binding.battery.isEnabled = !unrestricted
         binding.batteryDesc.setText(if (unrestricted) R.string.battery_ok else R.string.battery_desc)
+
+        // Only shown while the app can still be paused for being "unused".
+        val canBePaused = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !packageManager.isAutoRevokeWhitelisted
+        binding.unusedDesc.isVisible = canBePaused
+        binding.unusedApps.isVisible = canBePaused
     }
 
     private fun setStatus(view: TextView, ok: Boolean) {

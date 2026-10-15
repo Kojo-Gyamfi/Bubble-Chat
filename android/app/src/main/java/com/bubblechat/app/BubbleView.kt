@@ -2,13 +2,14 @@ package com.bubblechat.app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Rect
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import android.widget.ImageView
-import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
 import kotlin.math.abs
 
 /**
@@ -31,6 +32,8 @@ class BubbleView(context: Context, private val callbacks: Callbacks) : FrameLayo
     private var downY = 0f
     private var downTime = 0L
     private var dragging = false
+    private val exclusionRect = Rect()
+    private val exclusionRects = listOf(exclusionRect)
 
     init {
         // Room around the circle so its elevation shadow isn't clipped by the window.
@@ -39,13 +42,20 @@ class BubbleView(context: Context, private val callbacks: Callbacks) : FrameLayo
         clipToPadding = false
         contentDescription = context.getString(R.string.bubble_content_desc)
 
-        val circle = ImageView(context).apply {
-            background = ContextCompat.getDrawable(context, R.drawable.bubble_background)
-            setImageResource(R.drawable.ic_launcher_foreground)
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            elevation = context.dp(6).toFloat()
+        // The robot chat-bubble logo (transparent PNG; its own glow stands in for a shadow).
+        val logo = ImageView(context).apply {
+            setImageResource(R.drawable.bubble_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        addView(circle, LayoutParams(context.dp(SIZE_DP), context.dp(SIZE_DP), Gravity.CENTER))
+        addView(logo, LayoutParams(context.dp(SIZE_DP), context.dp(SIZE_DP), Gravity.CENTER))
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        // The bubble docks on a screen edge, where gesture navigation would
+        // otherwise treat a sideways drag as the system Back gesture and steal it.
+        exclusionRect.set(0, 0, width, height)
+        ViewCompat.setSystemGestureExclusionRects(this, exclusionRects)
     }
 
     @SuppressLint("ClickableViewAccessibility") // taps go through performClick()

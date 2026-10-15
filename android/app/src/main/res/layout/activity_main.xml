@@ -4,7 +4,6 @@
     android:id="@+id/scroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/screen_background"
     android:fillViewport="true">
 
     <LinearLayout
@@ -207,8 +206,22 @@
                     android:text="@string/battery_action" />
 
                 <TextView
+                    android:id="@+id/unusedDesc"
                     style="@style/RowDesc"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/unused_desc" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/unusedApps"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/unused_action" />
+
+                <TextView
+                    style="@style/RowDesc"
+                    android:layout_marginTop="16dp"
                     android:text="@string/oem_help" />
 
                 <com.google.android.material.button.MaterialButton

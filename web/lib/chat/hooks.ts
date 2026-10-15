@@ -2,7 +2,7 @@
 
 import type { User } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
-import { collection, limit, onSnapshot, orderBy, query, type Timestamp } from "firebase/firestore";
+import { collection, limit, limitToLast, onSnapshot, orderBy, query, type Timestamp } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { db } from "@/lib/firebase/client";
 import { ChatRequestError, newConversationId, newMessageId, streamChat } from "@/lib/chat/client";
@@ -13,6 +13,9 @@ export type ListenerError = "permission-denied" | "unknown";
 function toListenerError(err: unknown): ListenerError {
   return err instanceof FirebaseError && err.code === "permission-denied" ? "permission-denied" : "unknown";
 }
+
+/** Messages loaded per conversation (newest). */
+const MAX_LOADED_MESSAGES = 100;
 
 export function useConversations(uid: string) {
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
@@ -52,9 +55,12 @@ function useMessages(uid: string, conversationId: string | null) {
 
   useEffect(() => {
     if (!conversationId) return;
+    // Latest messages only: every document a listener loads is a Firestore read
+    // (free plan: 50k/day), and huge DOMs slow the chat down.
     const q = query(
       collection(db(), "users", uid, "conversations", conversationId, "messages"),
       orderBy("createdAt"),
+      limitToLast(MAX_LOADED_MESSAGES),
     );
     return onSnapshot(
       q,
@@ -67,7 +73,11 @@ function useMessages(uid: string, conversationId: string | null) {
             content: d.get("content") as string,
           })),
         }),
-      (err) => console.error("Message listener failed", err),
+      (err) => {
+        console.error("Message listener failed", err);
+        // Stop showing "loading" forever; keep whatever we had.
+        setState((s) => (s.id === conversationId ? s : { id: conversationId, messages: [] }));
+      },
     );
   }, [uid, conversationId]);
 
@@ -90,8 +100,8 @@ export function friendlyError(err: unknown): string {
   if (err instanceof ChatRequestError) {
     if (err.status === 401) return "Your session expired. Sign in again.";
     if (err.status === 403) return "This account isn't allowed to use the chat.";
-    // Limit reached / AI unavailable: the server's message is meant for users.
-    if (err.status === 429 || err.status === 503) return err.message;
+    // Offline / timeout (0), limit reached (429), AI unavailable (503): the message is meant for users.
+    if (err.status === 0 || err.status === 429 || err.status === 503) return err.message;
   }
   return "Something went wrong. Please try again.";
 }

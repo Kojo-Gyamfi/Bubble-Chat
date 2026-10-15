@@ -14,6 +14,8 @@ import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -35,6 +37,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -103,6 +106,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             return
         }
         createWebView()
+        watchNetwork()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -120,7 +124,13 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
                 // A fresh token arrived: reload now so the page signs in while the
                 // one-hour token is still valid.
                 prefs.bubbleEnabled = true
-                webView?.loadUrl(overlayUrl, loadHeaders)
+                val web = webView
+                if (web == null) {
+                    createWebView() // loads the overlay itself
+                } else {
+                    resumeWebView() // it must run now, even with the panel closed
+                    web.loadUrl(overlayUrl, loadHeaders)
+                }
             }
             ACTION_START -> prefs.bubbleEnabled = true
             // null intent = system restart after the process was killed (START_STICKY).
@@ -130,6 +140,15 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
 
     override fun onDestroy() {
         isRunning = false
+        main.removeCallbacksAndMessages(null)
+        networkCallback?.let { callback ->
+            try {
+                getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback)
+            } catch (e: Exception) {
+                // Not registered.
+            }
+        }
+        networkCallback = null
         snapAnimator?.cancel()
         panel?.let { removeWindow(it) }
         bubble?.let { removeWindow(it) }
@@ -266,6 +285,9 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             bubbleParams = params
         } catch (e: Exception) {
             Log.e(TAG, "Could not add the bubble window", e)
+            // "Display over other apps" was turned off while running: stop rather
+            // than keep an invisible foreground service around.
+            if (!Settings.canDrawOverlays(this)) stopSelf()
         }
     }
 
@@ -348,6 +370,12 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
     fun expand() {
         if (panel != null) return
         val web = webView ?: createWebView()
+        if (web == null) {
+            // System WebView is updating/unavailable; createWebView() keeps retrying.
+            Toast.makeText(this, R.string.webview_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
+        resumeWebView()
         snapAnimator?.cancel()
         bubble?.let { removeWindow(it) }
         bubble = null
@@ -374,15 +402,63 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         removeWindow(view)
         panel = null
         panelParams = null
+        pauseWebView()
         showBubble()
     }
 
     override fun onPanelDismiss() = collapse()
 
-    override fun onPanelRetry() {
+    override fun onPanelRetry() = reloadOverlay()
+
+    private fun reloadOverlay() {
         pageFailed = false
         panel?.showError(false)
-        webView?.loadUrl(overlayUrl, loadHeaders)
+        val web = webView
+        if (web == null) {
+            createWebView()
+        } else {
+            resumeWebView()
+            web.loadUrl(overlayUrl, loadHeaders)
+        }
+    }
+
+    // While collapsed, the hidden page doesn't need to run: pausing its
+    // JavaScript timers saves battery and CPU. Firestore catches up on resume.
+    private var webPaused = false
+
+    private fun pauseWebView() {
+        val web = webView ?: return
+        if (webPaused) return
+        web.onPause()
+        web.pauseTimers()
+        webPaused = true
+    }
+
+    private fun resumeWebView() {
+        val web = webView ?: return
+        if (!webPaused) return
+        web.resumeTimers()
+        web.onResume()
+        webPaused = false
+    }
+
+    // ---------------------------------------------------------------- network
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    /** If the page failed to load while offline, reload it as soon as a network is back. */
+    private fun watchNetwork() {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                main.post { if (pageFailed) reloadOverlay() }
+            }
+        }
+        try {
+            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not watch network changes", e)
+        }
     }
 
     override fun onKeyboardChanged(keyboardTop: Int?) {
@@ -412,13 +488,31 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
     private fun isAppUrl(uri: Uri?): Boolean =
         uri != null && uri.scheme == baseUri.scheme && uri.host == baseUri.host && uri.port == baseUri.port
 
+    /**
+     * Creates the shared WebView and starts loading /overlay, or returns null if the
+     * system WebView can't be created right now (e.g. "Android System WebView" or
+     * Chrome is mid-update); then it retries shortly instead of crashing.
+     */
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun createWebView(): WebView {
+    private fun createWebView(): WebView? {
         webView?.let { return it }
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG) // chrome://inspect in debug builds
-        val web = WebView(themed).apply {
+        val web = try {
+            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG) // chrome://inspect in debug builds
+            WebView(themed)
+        } catch (e: Exception) {
+            Log.e(TAG, "WebView unavailable; retrying", e)
+            main.postDelayed({ if (isRunning && webView == null) createWebView() }, WEBVIEW_RETRY_MS)
+            return null
+        }
+        web.apply {
             setBackgroundColor(ContextCompat.getColor(themed, R.color.panel_background))
             settings.apply {
+                // ngrok's free tier serves an HTML warning page instead of every
+                // script/style unless the User-Agent isn't a stock browser one
+                // (the skip header above only covers the main document).
+                if (BuildConfig.DEBUG && baseUri.host.orEmpty().contains("ngrok")) {
+                    userAgentString = "BubbleChatDebug/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE})"
+                }
                 javaScriptEnabled = true
                 domStorageEnabled = true // Firebase keeps the session in IndexedDB
                 setSupportMultipleWindows(false)
@@ -436,6 +530,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             }
         }
         webView = web
+        webPaused = false
         // Load right away (not on first tap) so a fresh link token is used within its hour.
         web.loadUrl(overlayUrl, loadHeaders)
         return web
@@ -451,6 +546,9 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
 
         override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
             pageTrusted = isAppUrl(url?.let(Uri::parse))
+            // A new load clears the error; onReceivedError sets it again if this one fails too.
+            pageFailed = false
+            panel?.showError(false)
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
@@ -470,8 +568,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             panel?.detachWebView(view)
             view.destroy()
             if (webView === view) webView = null
-            val fresh = createWebView()
-            panel?.attachWebView(fresh)
+            createWebView()?.let { fresh -> panel?.attachWebView(fresh) }
             return true
         }
     }
@@ -508,6 +605,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         private const val CHANNEL_ID = "bubble"
         private const val NOTIFICATION_ID = 1
         private const val BRIDGE_NAME = "Android"
+        private const val WEBVIEW_RETRY_MS = 15_000L
 
         const val ACTION_START = "com.bubblechat.app.action.START"
         const val ACTION_STOP = "com.bubblechat.app.action.STOP"

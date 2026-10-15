@@ -5,6 +5,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type Ref,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -13,6 +14,12 @@ import {
 import { MAX_MESSAGE_CHARS } from "@/lib/chat/schema";
 
 const MAX_HEIGHT_PX = 208;
+
+function autosize(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
+}
 
 export interface ComposerHandle {
   /** Replaces the draft and puts the cursor at the end, ready to keep typing. */
@@ -57,11 +64,23 @@ export function Composer({
 
   // Auto-grow up to MAX_HEIGHT_PX.
   useLayoutEffect(() => {
+    autosize(input.current);
+  }, [text]);
+
+  // Re-measure when the width changes. The bubble's WebView loads this page
+  // while detached (near-zero width), so the first measurement is far too tall.
+  useEffect(() => {
     const el = input.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
-  }, [text]);
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return; // ignore our own height changes
+      width = el.clientWidth;
+      autosize(el);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   function submit(e?: FormEvent) {
     e?.preventDefault();
@@ -133,7 +152,9 @@ export function Composer({
       ) : (
         !compact && (
           <p className="mt-2 text-center text-xs text-muted-foreground">
-            Bubble can make mistakes. Check important info.
+            Bubble can make mistakes<span className="hidden sm:inline">. Check important info</span>.
+            <span className="mx-1.5 opacity-60">·</span>
+            Built by <span className="font-medium text-foreground/70">Nana Kojo</span>
           </p>
         )
       )}

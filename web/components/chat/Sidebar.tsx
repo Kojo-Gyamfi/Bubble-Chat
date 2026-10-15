@@ -39,7 +39,7 @@ export function Sidebar({
     <nav className="flex h-full flex-col bg-sidebar" aria-label="Conversations">
       <div className="flex h-14 shrink-0 items-center justify-between px-3">
         <div className="flex items-center gap-2 px-1">
-          <Logo className="size-7" />
+          <Logo className="size-8" />
           <span className="text-[15px] font-semibold tracking-tight">Bubble</span>
         </div>
         {onClose && <IconButton icon={X} label="Close menu" onClick={onClose} />}

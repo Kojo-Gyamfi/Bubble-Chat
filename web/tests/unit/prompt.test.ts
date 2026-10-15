@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LlmMessage } from "@/lib/llm";
-import { buildMessages, MAX_CONTEXT_MESSAGES, systemPrompt } from "@/lib/prompt";
+import { buildMessages, CREATOR_ANSWER, MAX_CONTEXT_MESSAGES, systemPrompt } from "@/lib/prompt";
 
 const turn = (i: number): LlmMessage[] => [
   { role: "user", content: `q${i}` },
@@ -40,5 +40,13 @@ describe("buildMessages", () => {
 describe("systemPrompt", () => {
   it("includes the date", () => {
     expect(systemPrompt(new Date("2026-10-14T12:00:00Z"))).toContain("2026-10-14");
+  });
+
+  it("tells the model who built it, with the canned answer", () => {
+    const prompt = systemPrompt();
+    expect(prompt).toContain("Kwadwo Gyamfi");
+    expect(prompt).toContain("Nana Kojo");
+    expect(prompt).toContain(CREATOR_ANSWER);
+    expect(CREATOR_ANSWER).toMatch(/built by \*\*Kwadwo Gyamfi\*\*, popularly known as \*\*Nana Kojo\*\*, a Software Developer/);
   });
 });

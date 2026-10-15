@@ -1,7 +1,7 @@
 "use client";
 
 import { Code2, Lightbulb, PenLine, Plane } from "lucide-react";
-import { Logo } from "@/components/ui";
+import { Credit, Logo } from "@/components/ui";
 
 // Each chip starts the sentence; the user finishes it in the composer.
 const SUGGESTIONS = [
@@ -27,14 +27,16 @@ export function EmptyState({
   if (compact) {
     return (
       <div className="flex flex-col items-center gap-3 text-center animate-fade-in">
-        <Logo className="size-9" />
+        <Logo className="size-16" />
         <p className="text-lg font-semibold tracking-tight">How can I help?</p>
+        <Credit className="-mt-2" />
       </div>
     );
   }
 
   return (
     <div className="flex w-full max-w-2xl flex-col items-center gap-7 text-center animate-fade-in">
+      <Logo className="-mb-3 size-20" />
       <h2 className="text-2xl font-semibold tracking-tight sm:text-[28px]">
         {first ? `What can I help with, ${first}?` : "What can I help with?"}
       </h2>

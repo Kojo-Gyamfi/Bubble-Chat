@@ -26,6 +26,20 @@ export function adminAuth(): Auth {
   return getAuth(adminApp());
 }
 
+let db: Firestore | undefined;
+
 export function adminDb(): Firestore {
-  return getFirestore(adminApp());
+  if (db) return db;
+  db = getFirestore(adminApp());
+  // HTTP/REST instead of gRPC: much faster cold starts on serverless (Vercel),
+  // and we don't use server-side realtime listeners. Not with the emulator:
+  // its REST path wants real credentials, which local runs don't have.
+  if (!process.env.FIRESTORE_EMULATOR_HOST) {
+    try {
+      db.settings({ preferRest: true });
+    } catch {
+      // Already configured (Next dev reloads this module but reuses the instance).
+    }
+  }
+  return db;
 }

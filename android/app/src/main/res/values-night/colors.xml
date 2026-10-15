@@ -3,7 +3,6 @@
     <color name="panel_background">#212121</color>
     <color name="panel_border">#1AFFFFFF</color>
     <color name="screen_background">#212121</color>
-    <color name="surface">#303030</color>
     <color name="text_primary">#ECECEC</color>
     <color name="text_secondary">#A3A3A3</color>
     <color name="ok">#4ADE80</color>
