@@ -3,12 +3,14 @@ package com.bubblechat.app
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Base64
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -21,6 +23,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import com.bubblechat.app.databinding.ActivityMainBinding
+import org.json.JSONObject
 
 /**
  * Setup screen: permissions, start/stop the bubble, account linking via the
@@ -33,6 +36,9 @@ class MainActivity : AppCompatActivity() {
 
     /** A link arrived before "Display over other apps" was granted; start once it is. */
     private var startWhenPermitted = false
+
+    /** The bubble signs in (or out) in the background, e.g. right after a deep link; update live. */
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> refreshAccount() }
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { refresh() }
@@ -70,6 +76,16 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleDeepLink(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        prefs.observe(prefsListener)
+    }
+
+    override fun onStop() {
+        prefs.stopObserving(prefsListener)
+        super.onStop()
     }
 
     override fun onResume() {
@@ -185,6 +201,8 @@ class MainActivity : AppCompatActivity() {
         binding.toggleBubble.setText(if (running) R.string.stop_bubble else R.string.start_bubble)
         binding.bubbleStatus.setText(if (running) R.string.bubble_running else R.string.bubble_stopped)
 
+        refreshAccount()
+
         val power = getSystemService(PowerManager::class.java)
         val unrestricted = power.isIgnoringBatteryOptimizations(packageName)
         binding.battery.isEnabled = !unrestricted
@@ -194,6 +212,36 @@ class MainActivity : AppCompatActivity() {
         val canBePaused = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !packageManager.isAutoRevokeWhitelisted
         binding.unusedDesc.isVisible = canBePaused
         binding.unusedApps.isVisible = canBePaused
+    }
+
+    /** "Account linked" once the bubble's page has reported a signed-in account. */
+    private fun refreshAccount() {
+        val account = prefs.linkedAccount
+        val pending = account == null && linkPending()
+        binding.accountStatus.setText(
+            when {
+                account != null -> R.string.account_linked
+                pending -> R.string.account_pending
+                else -> R.string.account_not_linked
+            },
+        )
+        binding.accountStatus.setTextColor(ContextCompat.getColor(this, if (account != null) R.color.ok else R.color.warn))
+        binding.accountDesc.text = when {
+            account != null -> getString(R.string.account_linked_as, account)
+            pending -> getString(R.string.account_pending_desc)
+            else -> getString(R.string.account_desc)
+        }
+        binding.relink.setText(if (account != null) R.string.relink else R.string.link_account)
+    }
+
+    /** A link token is saved and still within its one-hour lifetime (JWT `exp`). */
+    private fun linkPending(): Boolean {
+        val token = prefs.authToken ?: return false
+        val expiresAtSeconds = runCatching {
+            val payload = Base64.decode(token.split('.')[1], Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+            JSONObject(String(payload)).getLong("exp")
+        }.getOrNull() ?: return false
+        return expiresAtSeconds * 1000 > System.currentTimeMillis()
     }
 
     private fun setStatus(view: TextView, ok: Boolean) {

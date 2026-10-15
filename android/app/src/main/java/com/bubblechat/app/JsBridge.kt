@@ -29,6 +29,12 @@ class JsBridge(private val service: OverlayService) {
         if (trusted()) prefs.authToken = null
     }
 
+    /** Signed-in account (email) for the setup screen's Account section; "" = signed out. */
+    @JavascriptInterface
+    fun setAccount(account: String) {
+        if (trusted()) prefs.linkedAccount = account.trim().take(MAX_ACCOUNT_CHARS)
+    }
+
     /** Last copied text. Android 10+ only allows this while our panel has focus. */
     @JavascriptInterface
     fun getClipboard(): String {
@@ -59,4 +65,8 @@ class JsBridge(private val service: OverlayService) {
 
     @JavascriptInterface
     fun getAppVersion(): String = BuildConfig.VERSION_NAME
+
+    private companion object {
+        const val MAX_ACCOUNT_CHARS = 200
+    }
 }

@@ -215,7 +215,7 @@ Goal: a compact `/overlay` route that works inside a 320×480 WebView, and a fix
 Google sign-in popups fail in WebViews. Use this flow instead:
 
 1. The user signs in once in Chrome (the PWA) and taps "Link bubble".
-2. The web app calls `POST /api/device-token` (allowed users only, max ~5 per user per day), which mints a Firebase custom token (`admin.auth().createCustomToken(uid, { allowed: true })`) and shows it as a deep link `bubble://link?token=...` plus a QR / copy button.
+2. The web app calls `POST /api/device-token` (allowed users only, max ~5 per user per day), which mints a Firebase custom token (`admin.auth().createCustomToken(uid, { allowed: true })`) and offers it only as an "Open in Bubble app" button (deep link `bubble://link?token=...`, no copy button or copyable `<a href>`, so the link can't be passed on). Once the bubble signs in, `/overlay` calls `POST /api/device-linked` (custom-token sessions only), which sets `users/{uid}.bubbleSeenAt`; `/link` then shows "Bubble app already linked" instead of the Create link button. "Unlink all devices" clears it.
 3. The Android app registers the `bubble://` scheme, stores the token in `Prefs`, **immediately** starts the service and loads `/overlay` in the WebView, which reads the token via `Android.getAuthToken()`.
 4. `/overlay` calls `signInWithCustomToken(auth, token)` on load, then calls `Android.onLinked()` so the native side deletes the token from `Prefs`. Firebase then manages refresh normally and persists the session in the WebView's storage.
 
@@ -236,6 +236,7 @@ Native → exposed on `window.Android` via `@JavascriptInterface`:
 | `openInBrowser(url)` | void | open the full PWA |
 | `getAppVersion()` | string | show in settings, for update checks |
 | `onLinked()` | void | web signed in with the custom token; native clears it from `Prefs` |
+| `setAccount(account)` | void | signed-in email ("" = signed out); the app's Account section shows "Account linked" (optional: missing in older APKs) |
 
 Web → native events are not needed in v1; the native side only reacts to the calls above.
 
@@ -245,7 +246,7 @@ Web → native events are not needed in v1; the native side only reacts to the c
 - [ ] `lib/bridge.ts` typed wrapper with no-op fallbacks when `window.Android` is missing
 - [ ] `POST /api/device-token` (auth required, rate-limited, returns custom token, logs issuance)
 - [ ] `POST /api/revoke` + "Unlink all devices" button in PWA settings
-- [ ] "Link bubble" screen in the PWA with deep link + copy button
+- [ ] "Link bubble" screen in the PWA with an "Open in Bubble app" button (no copy) and an "already linked" state
 - [ ] "Paste from clipboard" button in the overlay composer
 - [ ] Test `/overlay` in Chrome DevTools at 320×480 before touching Android
 
@@ -308,7 +309,7 @@ Add an intent filter on `MainActivity` for scheme `bubble`, host `link` (the aut
 
 ### JsBridge.kt
 
-Implements the Phase 3 table exactly: `getAuthToken`, `getClipboard`, `copyToClipboard`, `minimize`, `openInBrowser`, `getAppVersion`, `onLinked`. Clipboard access must run on the main thread; post to a `Handler`. `minimize` posts to the service. Android 10+ only lets the focused app read the clipboard: verify on a device that the focused overlay panel qualifies; if not, `getClipboard` returns "" and users paste via the keyboard's clipboard bar.
+Implements the Phase 3 table exactly: `getAuthToken`, `getClipboard`, `copyToClipboard`, `minimize`, `openInBrowser`, `getAppVersion`, `onLinked`, `setAccount`. Clipboard access must run on the main thread; post to a `Handler`. `minimize` posts to the service. Android 10+ only lets the focused app read the clipboard: verify on a device that the focused overlay panel qualifies; if not, `getClipboard` returns "" and users paste via the keyboard's clipboard bar.
 
 ### Android tasks
 

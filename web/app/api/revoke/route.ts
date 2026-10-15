@@ -1,5 +1,6 @@
+import { FieldValue } from "firebase-admin/firestore";
 import { errorResponse, forgetRevocationState, requireUser } from "@/lib/auth";
-import { adminAuth } from "@/lib/firebase/admin";
+import { adminAuth, adminDb } from "@/lib/firebase/admin";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,8 @@ export async function POST(req: Request) {
     const user = await requireUser(req);
     await adminAuth().revokeRefreshTokens(user.uid);
     forgetRevocationState(user.uid);
+    // The bubble is signed out now, so /link should offer a new link again.
+    await adminDb().doc(`users/${user.uid}`).set({ bubbleSeenAt: FieldValue.delete() }, { merge: true });
     console.info(`Revoked all sessions for uid=${user.uid}`);
     return new Response(null, { status: 204 });
   } catch (err) {

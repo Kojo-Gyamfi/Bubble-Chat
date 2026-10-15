@@ -30,6 +30,8 @@ beforeEach(async () => {
     await setDoc(doc(db, "allowlist/alice@example.com"), { addedAt: new Date() });
     await setDoc(doc(db, "users/alice/conversations/c1"), { title: "Hi" });
     await setDoc(doc(db, "users/alice/conversations/c1/messages/m1"), { role: "user", content: "hi" });
+    await setDoc(doc(db, "users/alice"), { email: ALICE.email, bubbleSeenAt: new Date() });
+    await setDoc(doc(db, "users/bob"), { email: "bob@example.com" });
     await setDoc(doc(db, "users/bob/conversations/c2"), { title: "Bob's" });
     await setDoc(doc(db, "usage/alice_2026-10-14"), { requests: 1 });
   });
@@ -45,6 +47,8 @@ describe("allowlisted user", () => {
     const db = googleUser(ALICE.uid, ALICE.email);
     await assertSucceeds(getDocs(collection(db, "users/alice/conversations")));
     await assertSucceeds(getDocs(collection(db, "users/alice/conversations/c1/messages")));
+    // Profile doc: /link reads bubbleSeenAt from it.
+    await assertSucceeds(getDoc(doc(db, "users/alice")));
   });
 
   it("is matched case-insensitively", async () => {
@@ -56,11 +60,13 @@ describe("allowlisted user", () => {
     await assertFails(setDoc(doc(db, "users/alice/conversations/c1/messages/m2"), { role: "assistant", content: "x" }));
     await assertFails(setDoc(doc(db, "users/alice/conversations/c3"), { title: "new" }));
     await assertFails(deleteDoc(doc(db, "users/alice/conversations/c1")));
+    await assertFails(setDoc(doc(db, "users/alice"), { bubbleSeenAt: new Date() }, { merge: true }));
   });
 
   it("cannot read other users' data, the allowlist or usage", async () => {
     const db = googleUser(ALICE.uid, ALICE.email);
     await assertFails(getDocs(collection(db, "users/bob/conversations")));
+    await assertFails(getDoc(doc(db, "users/bob")));
     await assertFails(getDoc(doc(db, "allowlist/alice@example.com")));
     await assertFails(getDoc(doc(db, "usage/alice_2026-10-14")));
   });

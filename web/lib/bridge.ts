@@ -14,6 +14,8 @@ interface AndroidBridge {
   getAppVersion(): string;
   /** Web side signed in with the custom token; native deletes it. */
   onLinked(): void;
+  /** Signed-in account (email) for the app's Account section, or "" when signed out. Missing in app ≤ 1.0. */
+  setAccount?(account: string): void;
 }
 
 declare global {
@@ -48,6 +50,10 @@ export const bridge = {
 
   onLinked(): void {
     call((a) => a.onLinked(), undefined);
+  },
+
+  setAccount(account: string): void {
+    call((a) => a.setAccount?.(account), undefined);
   },
 
   minimize(): void {

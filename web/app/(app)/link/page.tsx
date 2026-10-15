@@ -1,32 +1,48 @@
 "use client";
 
-import { AlertCircle, ArrowLeft, Check, Copy, ExternalLink, Loader2, Smartphone, Unlink } from "lucide-react";
+import type { User } from "firebase/auth";
+import {
+  AlertCircle,
+  ArrowLeft,
+  CircleCheck,
+  ExternalLink,
+  Loader2,
+  Smartphone,
+  Unlink,
+} from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Credit, PrimaryButton, SecondaryButton } from "@/components/ui";
-import { bridge } from "@/lib/bridge";
 import { createDeviceLink, type DeviceLink, revokeAllSessions } from "@/lib/chat/client";
-import { friendlyError } from "@/lib/chat/hooks";
+import { friendlyError, useBubbleSeenAt } from "@/lib/chat/hooks";
 import { signOut } from "@/lib/firebase/client";
 
 export default function LinkBubblePage() {
   const { user } = useAuth();
-  const [link, setLink] = useState<DeviceLink | null>(null);
+  if (!user) return null; // the (app) layout handles signed-out users
+  return <LinkBubble user={user} />;
+}
+
+function LinkBubble({ user }: { user: User }) {
+  const seenAt = useBubbleSeenAt(user.uid);
+  // A link plus the bubble's last-seen time when it was made: once the bubble
+  // reports in after that, the page flips to "linked" by itself.
+  const [link, setLink] = useState<(DeviceLink & { seenBefore: Date | null }) | null>(null);
+  const [relinking, setRelinking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
 
-  if (!user) return null; // the (app) layout handles signed-out users
+  const usedSinceLink = !!link && !!seenAt && (!link.seenBefore || seenAt > link.seenBefore);
+  const linked = !!seenAt && (link ? usedSinceLink : !relinking);
 
   async function create() {
-    if (!user) return;
     setBusy(true);
     setError(null);
     try {
-      setLink(await createDeviceLink(user));
+      setLink({ ...(await createDeviceLink(user)), seenBefore: seenAt ?? null });
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -34,14 +50,12 @@ export default function LinkBubblePage() {
     }
   }
 
-  async function copy() {
-    if (!link) return;
-    setCopied(await bridge.copyText(link.deepLink));
-    setTimeout(() => setCopied(false), 2000);
+  function linkAgain() {
+    setLink(null);
+    setRelinking(true);
   }
 
   async function unlinkAll() {
-    if (!user) return;
     setUnlinking(true);
     try {
       await revokeAllSessions(user);
@@ -75,39 +89,55 @@ export default function LinkBubblePage() {
       </div>
 
       <section className="mt-8 rounded-2xl border border-border p-5">
-        <ol className="space-y-4">
-          <Step n={1}>Install the Bubble Chat app on this Android phone.</Step>
-          <Step n={2}>Create a sign-in link below.</Step>
-          <Step n={3}>Tap <strong className="font-medium">Open in Bubble app</strong>. The bubble signs in as you.</Step>
-        </ol>
-
-        <div className="mt-6 border-t border-border pt-5">
-          {!link ? (
-            <PrimaryButton onClick={create} disabled={busy} className="w-full sm:w-auto">
-              {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-              {busy ? "Creating…" : "Create link"}
-            </PrimaryButton>
-          ) : (
-            <div className="space-y-3 animate-fade-up">
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <a
-                  href={link.deepLink}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-primary sm:flex-1 px-5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-85"
-                >
+        {seenAt === undefined ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            Checking your bubble app…
+          </div>
+        ) : linked ? (
+          <div className="animate-fade-up">
+            <div className="flex items-start gap-3">
+              <CircleCheck className="mt-0.5 size-5 shrink-0 text-success" aria-hidden="true" />
+              <div className="min-w-0">
+                <h2 className="font-medium">Bubble app already linked</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {usedSinceLink ? "Linked just now. " : ""}Last used {formatSeen(seenAt)}. You&apos;re all set.
+                </p>
+              </div>
+            </div>
+            <p className="mt-5 border-t border-border pt-4 text-sm text-muted-foreground">
+              New phone, reinstalled the app, or the bubble asks you to re-link?{" "}
+              <button
+                type="button"
+                onClick={linkAgain}
+                className="font-medium text-foreground underline underline-offset-4 hover:opacity-80"
+              >
+                Create a new link
+              </button>
+            </p>
+          </div>
+        ) : (
+          <LinkSteps>
+            {!link ? (
+              <PrimaryButton onClick={create} disabled={busy} className="w-full sm:w-auto">
+                {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+                {busy ? "Creating…" : "Create link"}
+              </PrimaryButton>
+            ) : (
+              <div className="space-y-3 animate-fade-up">
+                {/* A button, not an <a href>: no "Copy link address" on long-press,
+                    so the sign-in link can't be copied and passed to someone else. */}
+                <PrimaryButton onClick={() => window.location.assign(link.deepLink)} className="w-full sm:w-auto">
                   <ExternalLink className="size-4" aria-hidden="true" />
                   Open in Bubble app
-                </a>
-                <SecondaryButton onClick={copy} className="sm:flex-1">
-                  {copied ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
-                  {copied ? "Copied" : "Copy link"}
-                </SecondaryButton>
+                </PrimaryButton>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Open this page on the phone that has the Bubble Chat app installed. Valid until {expiresAt}.
+                </p>
               </div>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Valid until {expiresAt}. Don&apos;t share it: anyone with this link can use the chat as you.
-              </p>
-            </div>
-          )}
-        </div>
+            )}
+          </LinkSteps>
+        )}
       </section>
 
       {error && (
@@ -156,6 +186,34 @@ export default function LinkBubblePage() {
       <Credit className="mt-10 text-center" />
     </main>
   );
+}
+
+function LinkSteps({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <ol className="space-y-4">
+        <Step n={1}>Install the Bubble Chat app on this Android phone.</Step>
+        <Step n={2}>Create a sign-in link below.</Step>
+        <Step n={3}>
+          Tap <strong className="font-medium">Open in Bubble app</strong>. The bubble signs in as you.
+        </Step>
+      </ol>
+      <div className="mt-6 border-t border-border pt-5">{children}</div>
+    </>
+  );
+}
+
+/** "today at 3:58 PM", "yesterday at …", or "12 Oct at …". */
+function formatSeen(date: Date): string {
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const days = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86_400_000);
+  if (days <= 0) return `today at ${time}`;
+  if (days === 1) return `yesterday at ${time}`;
+  return `${date.toLocaleDateString([], { day: "numeric", month: "short" })} at ${time}`;
+}
+
+function startOfDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
 function Step({ n, children }: { n: number; children: ReactNode }) {

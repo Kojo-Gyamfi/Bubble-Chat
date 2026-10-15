@@ -18,6 +18,7 @@ export function Sidebar({
   onSignOut,
   onClose,
   onCollapse,
+  compact = false,
 }: {
   conversations: Conversation[] | null;
   activeId: string | null;
@@ -25,11 +26,13 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onNewChat: () => void;
-  onSignOut: () => void;
+  onSignOut?: () => void;
   /** Mobile drawer: close button. */
   onClose?: () => void;
   /** Desktop: collapse the sidebar. */
   onCollapse?: () => void;
+  /** Bubble panel: no "Link bubble app" and no account menu (signing out there would unlink the bubble). */
+  compact?: boolean;
 }) {
   // Two-tap delete (no confirm(): JS dialogs crash in the bubble WebView).
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -37,7 +40,7 @@ export function Sidebar({
 
   return (
     <nav className="flex h-full flex-col bg-sidebar" aria-label="Conversations">
-      <div className="flex h-14 shrink-0 items-center justify-between px-3">
+      <div className={`flex ${compact ? "h-11" : "h-14"} shrink-0 items-center justify-between px-3`}>
         <div className="flex items-center gap-2 px-1">
           <Logo className="size-8" />
           <span className="text-[15px] font-semibold tracking-tight">Bubble</span>
@@ -48,16 +51,18 @@ export function Sidebar({
 
       <div className="space-y-0.5 px-2">
         <SidebarAction icon={SquarePen} label="New chat" onClick={onNewChat} />
-        <Link
-          href="/link"
-          className="flex h-10 items-center gap-3 rounded-lg px-2.5 text-sm transition-colors hover:bg-surface-strong/70"
-        >
-          <Smartphone className="size-[18px] text-muted-foreground" aria-hidden="true" />
-          Link bubble app
-        </Link>
+        {!compact && (
+          <Link
+            href="/link"
+            className="flex h-10 items-center gap-3 rounded-lg px-2.5 text-sm transition-colors hover:bg-surface-strong/70"
+          >
+            <Smartphone className="size-[18px] text-muted-foreground" aria-hidden="true" />
+            Link bubble app
+          </Link>
+        )}
       </div>
 
-      <div className="mt-5 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className={`${compact ? "mt-3" : "mt-5"} min-h-0 flex-1 overflow-y-auto px-2 pb-3`}>
         {conversations === null && (
           <div className="space-y-2 px-2.5 pt-1" aria-label="Loading conversations">
             {[70, 55, 80, 45].map((w) => (
@@ -118,9 +123,11 @@ export function Sidebar({
         ))}
       </div>
 
-      <div className="border-t border-border p-2">
-        <AccountMenu user={user} onSignOut={onSignOut} />
-      </div>
+      {onSignOut && !compact && (
+        <div className="border-t border-border p-2">
+          <AccountMenu user={user} onSignOut={onSignOut} />
+        </div>
+      )}
     </nav>
   );
 }

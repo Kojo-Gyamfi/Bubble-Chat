@@ -66,6 +66,11 @@ export async function createDeviceLink(user: User): Promise<DeviceLink> {
   return (await res.json()) as DeviceLink;
 }
 
+/** Bubble app only: marks this account's bubble as linked (shown on /link). */
+export async function reportBubbleLinked(user: User): Promise<void> {
+  await authedFetch(user, "/api/device-linked", { method: "POST" });
+}
+
 /** Signs out every session of this account: bubble app and all browsers. */
 export async function revokeAllSessions(user: User): Promise<void> {
   await authedFetch(user, "/api/revoke", { method: "POST" });

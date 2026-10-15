@@ -2,6 +2,7 @@
 
 import { Link2Off, LogIn, TimerOff } from "lucide-react";
 import Link from "next/link";
+import { useEffect } from "react";
 import { OverlayChat } from "@/components/overlay/OverlayChat";
 import { FullScreenSpinner } from "@/components/Spinner";
 import { Notice, PrimaryButton } from "@/components/ui";
@@ -11,6 +12,17 @@ import { useIsNative, useOverlayAuth } from "@/lib/overlay-auth";
 export default function OverlayPage() {
   const auth = useOverlayAuth();
   const native = useIsNative();
+
+  // Keep the app's Account section ("Linked as …" / "Not linked") in sync.
+  const account =
+    auth.state === "ready"
+      ? auth.user.email || auth.user.displayName || "your account"
+      : auth.state === "unlinked"
+        ? ""
+        : null;
+  useEffect(() => {
+    if (account !== null) bridge.setAccount(account);
+  }, [account]);
 
   if (auth.state === "loading") return <FullScreenSpinner />;
   if (auth.state === "ready") return <OverlayChat user={auth.user} />;

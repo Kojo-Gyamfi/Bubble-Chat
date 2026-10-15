@@ -33,7 +33,8 @@ export async function appendUserMessage(
         email: user.email,
         displayName: user.name,
         lastSeenAt: now,
-        ...(userSnap.exists ? {} : { createdAt: now }),
+        // The bubble's "linked" marker can create the doc without createdAt.
+        ...(userSnap.get("createdAt") ? {} : { createdAt: now }),
       },
       { merge: true },
     );

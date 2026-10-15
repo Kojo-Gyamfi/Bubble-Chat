@@ -2,7 +2,7 @@
 
 import type { User } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
-import { collection, limit, limitToLast, onSnapshot, orderBy, query, type Timestamp } from "firebase/firestore";
+import { collection, doc, limit, limitToLast, onSnapshot, orderBy, query, type Timestamp } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { db } from "@/lib/firebase/client";
 import { ChatRequestError, newConversationId, newMessageId, streamChat } from "@/lib/chat/client";
@@ -45,6 +45,27 @@ export function useConversations(uid: string) {
   }, [uid]);
 
   return { conversations, error };
+}
+
+/**
+ * When the bubble app was last opened signed in as this user (users/{uid}.bubbleSeenAt).
+ * undefined = loading, null = not linked (or unlinked since).
+ */
+export function useBubbleSeenAt(uid: string): Date | null | undefined {
+  const [seenAt, setSeenAt] = useState<Date | null | undefined>(undefined);
+
+  useEffect(() => {
+    return onSnapshot(
+      doc(db(), "users", uid),
+      (snap) => setSeenAt((snap.get("bubbleSeenAt") as Timestamp | undefined)?.toDate() ?? null),
+      (err) => {
+        console.error("Profile listener failed", err);
+        setSeenAt(null); // fall back to offering a link
+      },
+    );
+  }, [uid]);
+
+  return seenAt;
 }
 
 function useMessages(uid: string, conversationId: string | null) {

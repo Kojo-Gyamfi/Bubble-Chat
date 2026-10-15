@@ -21,7 +21,13 @@
 
     <string name="section_account">Account</string>
     <string name="account_desc">Sign in by creating a link in the web app (sidebar → Link bubble app) and opening it on this phone.</string>
-    <string name="relink">Link or re-link account</string>
+    <string name="account_linked">✓ Account linked</string>
+    <string name="account_linked_as">Signed in as %1$s. You only need to re-link on a new phone or if the bubble asks you to.</string>
+    <string name="account_not_linked">Not linked</string>
+    <string name="account_pending">Link received</string>
+    <string name="account_pending_desc">Start the bubble to finish signing in. Links last one hour.</string>
+    <string name="link_account">Link account</string>
+    <string name="relink">Re-link account</string>
     <string name="open_web_app">Open web app</string>
     <string name="linked_toast">Account link received. Open the bubble to finish signing in.</string>
     <string name="link_invalid">That link looks incomplete. Create a new one in the web app.</string>

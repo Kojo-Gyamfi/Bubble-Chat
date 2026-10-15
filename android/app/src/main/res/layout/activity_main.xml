@@ -157,8 +157,16 @@
                 android:padding="16dp">
 
                 <TextView
-                    style="@style/RowDesc"
+                    android:id="@+id/accountStatus"
+                    style="@style/RowStatus"
+                    android:layout_width="match_parent"
                     android:layout_marginTop="0dp"
+                    android:text="@string/account_not_linked" />
+
+                <TextView
+                    android:id="@+id/accountDesc"
+                    style="@style/RowDesc"
+                    android:layout_marginTop="4dp"
                     android:text="@string/account_desc" />
 
                 <com.google.android.material.button.MaterialButton
@@ -167,7 +175,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="@string/relink" />
+                    android:text="@string/link_account" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/openWebApp"

@@ -16,6 +16,8 @@ export interface AuthedUser {
   uid: string;
   email: string | null;
   name: string | null;
+  /** Firebase sign-in provider: "google.com" in browsers, "custom" in the bubble app. */
+  provider: string;
 }
 
 /**
@@ -37,7 +39,12 @@ export async function requireUser(req: Request): Promise<AuthedUser> {
   if (await isRevoked(token)) throw new HttpError(401, "Invalid or revoked token");
 
   if (!(await isAllowed(token))) throw new HttpError(403, "This account is not on the allowlist");
-  return { uid: token.uid, email: token.email ?? null, name: token.name ?? null };
+  return {
+    uid: token.uid,
+    email: token.email ?? null,
+    name: token.name ?? null,
+    provider: token.firebase.sign_in_provider,
+  };
 }
 
 // ---- revocation ("Unlink all devices") ----
