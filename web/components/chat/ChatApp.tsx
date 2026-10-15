@@ -1,10 +1,13 @@
 "use client";
 
 import type { User } from "firebase/auth";
-import { useState } from "react";
-import { Composer } from "@/components/chat/Composer";
+import { Menu, PanelLeft, ShieldAlert, SquarePen } from "lucide-react";
+import { useRef, useState } from "react";
+import { Composer, type ComposerHandle } from "@/components/chat/Composer";
+import { EmptyState } from "@/components/chat/EmptyState";
 import { MessageList } from "@/components/chat/MessageList";
 import { Sidebar } from "@/components/chat/Sidebar";
+import { IconButton, Notice, SecondaryButton } from "@/components/ui";
 import { deleteConversation } from "@/lib/chat/client";
 import { useChat, useConversations } from "@/lib/chat/hooks";
 import { signOut } from "@/lib/firebase/client";
@@ -13,11 +16,24 @@ export function ChatApp({ user }: { user: User }) {
   const { conversations, error } = useConversations(user.uid);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true); // desktop only
   const { messages, loading, busy, send } = useChat(user, activeId);
+  const composer = useRef<ComposerHandle>(null);
 
-  if (error === "permission-denied") return <NotAllowed email={user.email} />;
+  if (error === "permission-denied") {
+    return (
+      <Notice
+        icon={ShieldAlert}
+        tone="danger"
+        title="You're not on the guest list"
+        action={<SecondaryButton onClick={() => signOut()}>Use a different account</SecondaryButton>}
+      >
+        {user.email ?? "This account"} isn&apos;t allowed to use this chat. Ask the owner to add you.
+      </Notice>
+    );
+  }
 
-  const title = conversations?.find((c) => c.id === activeId)?.title ?? "New chat";
+  const title = activeId ? (conversations?.find((c) => c.id === activeId)?.title ?? "") : "";
 
   function select(id: string | null) {
     setActiveId(id);
@@ -35,84 +51,63 @@ export function ChatApp({ user }: { user: User }) {
     deleteConversation(user, id).catch((err) => console.error("Delete failed", err));
   }
 
-  const sidebar = (
-    <Sidebar
-      conversations={conversations}
-      activeId={activeId}
-      email={user.email}
-      onSelect={select}
-      onDelete={handleDelete}
-      onNewChat={() => select(null)}
-      onSignOut={() => signOut()}
-    />
-  );
+  const sidebarProps = {
+    conversations,
+    activeId,
+    user,
+    onSelect: select,
+    onDelete: handleDelete,
+    onNewChat: () => select(null),
+    onSignOut: () => signOut(),
+  };
 
   return (
-    <div className="flex h-dvh pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
-      <aside className="hidden w-72 shrink-0 border-r border-border md:block">{sidebar}</aside>
+    <div className="flex h-dvh pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+      {sidebarOpen && (
+        <aside className="hidden w-[260px] shrink-0 pt-[env(safe-area-inset-top)] md:block">
+          <Sidebar {...sidebarProps} onCollapse={() => setSidebarOpen(false)} />
+        </aside>
+      )}
 
       {drawerOpen && (
-        <div className="fixed inset-0 z-20 md:hidden" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-30 md:hidden" role="dialog" aria-modal="true" aria-label="Conversations">
           <button
             type="button"
             aria-label="Close menu"
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-black/40 animate-fade-in"
             onClick={() => setDrawerOpen(false)}
           />
-          <aside className="absolute inset-y-0 left-0 w-[80%] max-w-xs pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-xl bg-muted">
-            {sidebar}
+          <aside className="absolute inset-y-0 left-0 w-[85%] max-w-[300px] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-2xl bg-sidebar animate-slide-in">
+            <Sidebar {...sidebarProps} onClose={() => setDrawerOpen(false)} />
           </aside>
         </div>
       )}
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open conversations"
-            className="flex size-9 items-center justify-center rounded-lg hover:bg-muted md:hidden"
-          >
-            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-              <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
-            </svg>
-          </button>
-          <h1 className="min-w-0 flex-1 truncate px-2 text-sm font-medium">{title}</h1>
-          <button
-            type="button"
-            onClick={() => select(null)}
-            aria-label="New chat"
-            className="flex size-9 items-center justify-center rounded-lg hover:bg-muted"
-          >
-            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-              <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-            </svg>
-          </button>
+      <main className="flex min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
+        <header className="flex h-14 shrink-0 items-center gap-1 px-2">
+          <IconButton icon={Menu} label="Open conversations" onClick={() => setDrawerOpen(true)} className="md:hidden" />
+          {!sidebarOpen && (
+            <>
+              <IconButton
+                icon={PanelLeft}
+                label="Open sidebar"
+                onClick={() => setSidebarOpen(true)}
+                className="hidden md:inline-flex"
+              />
+              <IconButton icon={SquarePen} label="New chat" onClick={() => select(null)} className="hidden md:inline-flex" />
+            </>
+          )}
+          <h1 className="min-w-0 flex-1 truncate px-2 text-[15px] font-medium">{title || "Bubble"}</h1>
+          <IconButton icon={SquarePen} label="New chat" onClick={() => select(null)} className="md:hidden" />
         </header>
 
         <MessageList
           messages={messages}
           loading={loading}
-          empty={<p className="mt-24 text-center text-sm opacity-50">Ask me anything.</p>}
+          empty={<EmptyState name={user.displayName} onStart={(starter) => composer.current?.setDraft(starter)} />}
         />
-        <Composer onSend={handleSend} disabled={busy} />
+        <Composer ref={composer} onSend={handleSend} disabled={busy} />
       </main>
     </div>
-  );
-}
-
-function NotAllowed({ email }: { email: string | null }) {
-  return (
-    <main className="safe-area flex h-dvh items-center justify-center text-center">
-      <div className="max-w-sm space-y-3">
-        <h1 className="text-lg font-semibold">Not on the guest list</h1>
-        <p className="text-sm opacity-70">
-          {email ?? "This account"} isn&apos;t allowed to use this chat. Ask the owner to add you.
-        </p>
-        <button type="button" onClick={() => signOut()} className="text-sm underline">
-          Use a different account
-        </button>
-      </div>
-    </main>
   );
 }

@@ -1,16 +1,19 @@
 "use client";
 
 import type { User } from "firebase/auth";
-import { type ReactNode, useState } from "react";
+import { Minus, ShieldAlert, SquarePen } from "lucide-react";
+import { useState } from "react";
 import { Composer } from "@/components/chat/Composer";
+import { EmptyState } from "@/components/chat/EmptyState";
 import { MessageList } from "@/components/chat/MessageList";
 import { FullScreenSpinner } from "@/components/Spinner";
+import { IconButton, Logo, Notice } from "@/components/ui";
 import { bridge } from "@/lib/bridge";
 import { useChat, useConversations } from "@/lib/chat/hooks";
 import { useIsNative } from "@/lib/overlay-auth";
 
 /**
- * Compact chat for the bubble's ~320×480 WebView panel: a 40 px bar, the
+ * Compact chat for the bubble's ~320×480 WebView panel: a 44 px bar, the
  * most recent conversation, and a composer with a paste button. No sidebar,
  * no <select>/alert/confirm (they crash in a Service-context WebView).
  */
@@ -26,9 +29,9 @@ export function OverlayChat({ user }: { user: User }) {
 
   if (error === "permission-denied") {
     return (
-      <OverlayNotice title="Not on the guest list">
+      <Notice icon={ShieldAlert} tone="danger" title="Not on the guest list">
         {user.email ?? "This account"} isn&apos;t allowed to use this chat.
-      </OverlayNotice>
+      </Notice>
     );
   }
   if (selected === undefined) return <FullScreenSpinner />;
@@ -42,52 +45,15 @@ export function OverlayChat({ user }: { user: User }) {
 
   return (
     <div className="flex h-dvh flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
-      <header className="flex h-10 shrink-0 items-center gap-1 border-b border-border pr-1 pl-3">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border pr-1 pl-3">
+        <Logo className="size-5 shrink-0" />
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
-        <BarButton label="New chat" onClick={() => setSelected(null)}>
-          <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-        </BarButton>
-        {native && (
-          <BarButton label="Minimize" onClick={() => bridge.minimize()}>
-            <path d="M6 12h12" strokeLinecap="round" />
-          </BarButton>
-        )}
+        <IconButton icon={SquarePen} label="New chat" size="sm" onClick={() => setSelected(null)} />
+        {native && <IconButton icon={Minus} label="Minimize" size="sm" onClick={() => bridge.minimize()} />}
       </header>
 
-      <MessageList
-        messages={messages}
-        loading={loading}
-        empty={<p className="mt-16 text-center text-sm opacity-50">Ask me anything.</p>}
-      />
-      <Composer onSend={handleSend} disabled={busy} readClipboard={bridge.readClipboard} />
+      <MessageList messages={messages} loading={loading} compact empty={<EmptyState compact />} />
+      <Composer onSend={handleSend} disabled={busy} readClipboard={bridge.readClipboard} compact placeholder="Message" />
     </div>
-  );
-}
-
-function BarButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className="flex size-8 items-center justify-center rounded-lg hover:bg-muted"
-    >
-      <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-        {children}
-      </svg>
-    </button>
-  );
-}
-
-export function OverlayNotice({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
-  return (
-    <main className="safe-area flex h-dvh items-center justify-center text-center">
-      <div className="max-w-xs space-y-2">
-        <h1 className="font-semibold">{title}</h1>
-        <p className="text-sm opacity-70">{children}</p>
-        {action}
-      </div>
-    </main>
   );
 }
