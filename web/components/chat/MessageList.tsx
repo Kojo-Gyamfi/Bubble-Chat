@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AlertCircle, ArrowDown } from "lucide-react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Markdown } from "@/components/chat/Markdown";
-import { bridge } from "@/lib/bridge";
+import { CopyButton } from "@/components/ui";
 import type { DisplayMessage } from "@/lib/chat/hooks";
 
 const STICK_THRESHOLD_PX = 80;
@@ -11,28 +12,39 @@ export function MessageList({
   messages,
   loading,
   empty,
+  compact = false,
 }: {
   messages: DisplayMessage[];
   loading?: boolean;
-  empty?: React.ReactNode;
+  /** Shown (vertically centered) when the conversation has no messages. */
+  empty?: ReactNode;
+  /** Tighter spacing for the bubble overlay. */
+  compact?: boolean;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
+
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    const el = scroller.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
+  };
 
   // Follow new chunks only while the user is already at the bottom.
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
     const onScroll = () => {
-      stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX;
+      const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX;
+      stickToBottom.current = bottom;
+      setAtBottom(bottom);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
   useLayoutEffect(() => {
-    const el = scroller.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+    if (stickToBottom.current) scrollToBottom();
   }, [messages]);
 
   // Keep the last message in view when the keyboard resizes the viewport.
@@ -40,87 +52,90 @@ export function MessageList({
     const el = scroller.current;
     if (!el) return;
     const observer = new ResizeObserver(() => {
-      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+      if (stickToBottom.current) scrollToBottom();
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
+  const showEmpty = !loading && messages.length === 0 && empty;
+
   return (
-    <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4">
-        {!loading && messages.length === 0 && empty}
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
+    <div className="relative min-h-0 flex-1">
+      <div ref={scroller} className="h-full overflow-y-auto overscroll-contain">
+        {showEmpty ? (
+          <div className="flex h-full items-center justify-center px-4">{empty}</div>
+        ) : (
+          <div
+            className={`mx-auto flex w-full max-w-3xl flex-col ${compact ? "gap-4 px-3 py-4 text-[15px]" : "gap-6 px-4 py-6 md:px-6"}`}
+          >
+            {messages.map((m) => (
+              <MessageItem key={m.id} message={m} compact={compact} />
+            ))}
+          </div>
+        )}
       </div>
+
+      {!atBottom && !showEmpty && (
+        <button
+          type="button"
+          onClick={() => scrollToBottom("smooth")}
+          aria-label="Scroll to bottom"
+          className="absolute bottom-3 left-1/2 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-colors hover:bg-surface animate-fade-up"
+        >
+          <ArrowDown className="size-4" aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }
 
-function MessageBubble({ message }: { message: DisplayMessage }) {
+function MessageItem({ message, compact }: { message: DisplayMessage; compact: boolean }) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-4 py-2 whitespace-pre-wrap text-white">
+      <div className="group flex flex-col items-end">
+        <div
+          className={`max-w-[85%] rounded-3xl bg-surface whitespace-pre-wrap break-words ${compact ? "px-3.5 py-2" : "px-5 py-2.5"}`}
+        >
           {message.content}
         </div>
+        {!compact && !message.pending && (
+          <div className="mt-1 flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <CopyButton text={message.content} label="Copy message" />
+          </div>
+        )}
       </div>
     );
   }
 
   if (message.pending === "error") {
     return (
-      <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-        {message.content}
+      <div
+        role="alert"
+        className="flex items-start gap-2.5 rounded-2xl border border-danger/25 bg-danger/5 px-4 py-3 text-sm text-danger animate-fade-up"
+      >
+        <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span>{message.content}</span>
       </div>
     );
   }
 
   if (message.pending === "streaming" && !message.content) {
-    return <TypingDots />;
+    return (
+      <div className="py-1.5" role="status" aria-label="Assistant is thinking">
+        <span className="block size-3.5 rounded-full bg-foreground animate-thinking" />
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-full">
+    <div className="group">
       <Markdown>{message.content}</Markdown>
-      {!message.pending && <CopyButton text={message.content} />}
-    </div>
-  );
-}
-
-// Long-press text selection is unreliable in the bubble WebView, so answers
-// get an explicit copy button (native clipboard via the bridge there).
-function CopyButton({ text }: { text: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-
-  async function copy() {
-    const ok = await bridge.copyText(text);
-    setState(ok ? "copied" : "failed");
-    setTimeout(() => setState("idle"), 1500);
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      className="mt-1 rounded px-1.5 py-0.5 text-xs opacity-50 hover:bg-muted hover:opacity-100"
-    >
-      {state === "copied" ? "Copied" : state === "failed" ? "Couldn't copy" : "Copy"}
-    </button>
-  );
-}
-
-function TypingDots() {
-  return (
-    <div className="flex gap-1 py-2" aria-label="Assistant is typing">
-      {[0, 150, 300].map((delay) => (
-        <span
-          key={delay}
-          className="size-2 animate-bounce rounded-full bg-current opacity-40"
-          style={{ animationDelay: `${delay}ms` }}
-        />
-      ))}
+      {!message.pending && (
+        <div className="mt-1.5 -ml-1.5 flex items-center gap-0.5">
+          <CopyButton text={message.content} />
+        </div>
+      )}
     </div>
   );
 }

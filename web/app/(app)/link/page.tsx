@@ -1,8 +1,10 @@
 "use client";
 
+import { AlertCircle, ArrowLeft, Check, Copy, ExternalLink, Loader2, Smartphone, Unlink } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { PrimaryButton, SecondaryButton } from "@/components/ui";
 import { bridge } from "@/lib/bridge";
 import { createDeviceLink, type DeviceLink, revokeAllSessions } from "@/lib/chat/client";
 import { friendlyError } from "@/lib/chat/hooks";
@@ -35,7 +37,7 @@ export default function LinkBubblePage() {
   async function copy() {
     if (!link) return;
     setCopied(await bridge.copyText(link.deepLink));
-    setTimeout(() => setCopied(false), 1500);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   async function unlinkAll() {
@@ -53,86 +55,114 @@ export default function LinkBubblePage() {
   const expiresAt = link ? new Date(link.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
 
   return (
-    <main className="safe-area mx-auto flex min-h-dvh max-w-lg flex-col gap-8">
-      <header className="flex items-center gap-3">
-        <Link href="/" className="text-sm underline opacity-70 hover:opacity-100">
-          ← Back to chat
-        </Link>
-      </header>
+    <main className="safe-area mx-auto min-h-dvh w-full max-w-xl">
+      <Link
+        href="/"
+        className="-ml-2 inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" aria-hidden="true" />
+        Back to chat
+      </Link>
 
-      <section className="space-y-4">
-        <h1 className="text-xl font-semibold">Link the bubble app</h1>
-        <ol className="list-decimal space-y-1 pl-5 text-sm opacity-80">
-          <li>Install the Bubble Chat app on this Android phone.</li>
-          <li>Tap <strong>Create link</strong> below.</li>
-          <li>Tap <strong>Open in Bubble app</strong>. The bubble signs in as you.</li>
+      <div className="mt-6 flex items-center gap-3 animate-fade-up">
+        <div className="flex size-11 items-center justify-center rounded-xl bg-surface">
+          <Smartphone className="size-5" aria-hidden="true" />
+        </div>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Link the bubble app</h1>
+          <p className="text-sm text-muted-foreground">Chat from a floating bubble over any Android app.</p>
+        </div>
+      </div>
+
+      <section className="mt-8 rounded-2xl border border-border p-5">
+        <ol className="space-y-4">
+          <Step n={1}>Install the Bubble Chat app on this Android phone.</Step>
+          <Step n={2}>Create a sign-in link below.</Step>
+          <Step n={3}>Tap <strong className="font-medium">Open in Bubble app</strong>. The bubble signs in as you.</Step>
         </ol>
 
-        {!link ? (
-          <button
-            type="button"
-            onClick={create}
-            disabled={busy}
-            className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {busy ? "Creating…" : "Create link"}
-          </button>
-        ) : (
-          <div className="space-y-3 rounded-xl border border-border bg-muted p-4">
-            <a
-              href={link.deepLink}
-              className="block rounded-xl bg-accent px-4 py-3 text-center text-sm font-medium text-white"
-            >
-              Open in Bubble app
-            </a>
-            <button
-              type="button"
-              onClick={copy}
-              className="w-full rounded-xl border border-border bg-background px-4 py-2 text-sm"
-            >
-              {copied ? "Copied" : "Copy link"}
-            </button>
-            <p className="text-xs opacity-60">
-              Valid until {expiresAt}. Don&apos;t share it: anyone with this link can use the chat as you.
-            </p>
-          </div>
-        )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="mt-6 border-t border-border pt-5">
+          {!link ? (
+            <PrimaryButton onClick={create} disabled={busy} className="w-full sm:w-auto">
+              {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+              {busy ? "Creating…" : "Create link"}
+            </PrimaryButton>
+          ) : (
+            <div className="space-y-3 animate-fade-up">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <a
+                  href={link.deepLink}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-primary sm:flex-1 px-5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-85"
+                >
+                  <ExternalLink className="size-4" aria-hidden="true" />
+                  Open in Bubble app
+                </a>
+                <SecondaryButton onClick={copy} className="sm:flex-1">
+                  {copied ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
+                  {copied ? "Copied" : "Copy link"}
+                </SecondaryButton>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Valid until {expiresAt}. Don&apos;t share it: anyone with this link can use the chat as you.
+              </p>
+            </div>
+          )}
+        </div>
       </section>
 
-      <section className="space-y-3 border-t border-border pt-6">
-        <h2 className="font-medium">Unlink all devices</h2>
-        <p className="text-sm opacity-70">
-          Signs out the bubble app and every browser where you&apos;re signed in, including this one.
+      {error && (
+        <p role="alert" className="mt-4 flex items-center gap-2 text-sm text-danger">
+          <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+          {error}
         </p>
-        {confirmUnlink ? (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={unlinkAll}
-              disabled={unlinking}
-              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-            >
-              {unlinking ? "Signing out…" : "Yes, sign out everywhere"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmUnlink(false)}
-              className="rounded-xl border border-border px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
+      )}
+
+      <section className="mt-6 rounded-2xl border border-border p-5">
+        <div className="flex items-start gap-3">
+          <Unlink className="mt-0.5 size-5 shrink-0 text-danger" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <h2 className="font-medium">Unlink all devices</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Signs out the bubble app and every browser where you&apos;re signed in, including this one.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {confirmUnlink ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={unlinkAll}
+                    disabled={unlinking}
+                    className="inline-flex h-10 items-center gap-2 rounded-full bg-danger px-5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                  >
+                    {unlinking && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+                    {unlinking ? "Signing out…" : "Yes, sign out everywhere"}
+                  </button>
+                  <SecondaryButton onClick={() => setConfirmUnlink(false)}>Cancel</SecondaryButton>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmUnlink(true)}
+                  className="inline-flex h-10 items-center rounded-full border border-danger/40 px-5 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
+                >
+                  Unlink all devices
+                </button>
+              )}
+            </div>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmUnlink(true)}
-            className="rounded-xl border border-red-600/40 px-4 py-2 text-sm text-red-700 dark:text-red-400"
-          >
-            Unlink all devices
-          </button>
-        )}
+        </div>
       </section>
     </main>
+  );
+}
+
+function Step({ n, children }: { n: number; children: ReactNode }) {
+  return (
+    <li className="flex gap-3 text-sm">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-surface text-xs font-semibold">
+        {n}
+      </span>
+      <span className="pt-0.5">{children}</span>
+    </li>
   );
 }

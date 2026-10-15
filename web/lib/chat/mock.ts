@@ -1,26 +1,33 @@
 import "server-only";
 
-// Phase 1 stand-in for the LLM: streams a canned markdown reply word by word.
+// LLM_PROVIDER=mock: streams a canned markdown reply word by word, covering
+// the common formatting so the UI can be checked without an API key.
 export async function* mockReply(message: string): AsyncIterable<string> {
   const quoted = message.length > 200 ? `${message.slice(0, 200)}…` : message;
   const reply = [
-    "This is a **mocked** reply. The real model gets wired up in Phase 2.",
+    "This is a **mocked** reply (`LLM_PROVIDER=mock`). You asked:",
     "",
     `> ${quoted.replace(/\n/g, "\n> ")}`,
     "",
-    "Things that already work:",
+    "### What this checks",
     "",
-    "- streaming, chunk by chunk",
-    "- markdown rendering, including `inline code`",
-    "- history saved to Firestore by the server",
+    "1. Streaming, chunk by chunk",
+    "2. Markdown: **bold**, *italic*, `inline code` and [links](https://nextjs.org)",
+    "3. History saved to Firestore by the server",
+    "",
+    "| Feature | Status |",
+    "| --- | --- |",
+    "| Streaming | Working |",
+    "| Copy buttons | Working |",
     "",
     "```ts",
-    'console.log("hello from the bubble");',
+    'const greeting = "hello from the bubble";',
+    "console.log(greeting);",
     "```",
   ].join("\n");
 
   for (const token of reply.split(/(?<=\s)/)) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, 20));
     yield token;
   }
 }

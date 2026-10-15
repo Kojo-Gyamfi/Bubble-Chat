@@ -1,10 +1,12 @@
 "use client";
 
 import { FirebaseError } from "firebase/app";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { FullScreenSpinner } from "@/components/Spinner";
+import { Logo } from "@/components/ui";
 import { signInWithGoogle } from "@/lib/firebase/client";
 
 export default function LoginPage() {
@@ -35,21 +37,31 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="safe-area flex h-dvh flex-col items-center justify-center gap-6">
-      <div className="text-center">
-        <h1 className="text-2xl font-semibold">Bubble Chat</h1>
-        <p className="mt-1 text-sm opacity-60">Invite-only. Sign in with your Google account.</p>
+    <main className="safe-area flex h-dvh flex-col items-center justify-center">
+      <div className="flex w-full max-w-sm flex-col items-center text-center animate-fade-up">
+        <Logo className="size-14" />
+        <h1 className="mt-6 text-[26px] font-semibold tracking-tight">Welcome to Bubble</h1>
+        <p className="mt-2 text-[15px] text-muted-foreground">Your private AI chat. Sign in to continue.</p>
+
+        <button
+          type="button"
+          onClick={handleSignIn}
+          disabled={busy}
+          className="mt-8 flex h-12 w-full items-center justify-center gap-3 rounded-full border border-border bg-background text-[15px] font-medium transition-colors hover:bg-surface disabled:opacity-60"
+        >
+          {busy ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : <GoogleIcon />}
+          {busy ? "Signing in…" : "Continue with Google"}
+        </button>
+
+        {error && (
+          <p role="alert" className="mt-4 flex items-center gap-2 text-sm text-danger">
+            <AlertCircle className="size-4" aria-hidden="true" />
+            {error}
+          </p>
+        )}
+
+        <p className="mt-10 text-xs text-muted-foreground">Invite only. Access is limited to approved accounts.</p>
       </div>
-      <button
-        type="button"
-        onClick={handleSignIn}
-        disabled={busy}
-        className="flex items-center gap-3 rounded-full border border-black/15 bg-white px-5 py-3 text-sm font-medium text-neutral-900 shadow-sm transition hover:bg-neutral-50 disabled:opacity-60 dark:border-white/15"
-      >
-        <GoogleIcon />
-        {busy ? "Signing in…" : "Continue with Google"}
-      </button>
-      {error && <p className="text-sm text-red-600">{error}</p>}
     </main>
   );
 }

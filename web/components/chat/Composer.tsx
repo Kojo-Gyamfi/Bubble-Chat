@@ -1,24 +1,59 @@
 "use client";
 
-import { type FormEvent, type KeyboardEvent, useLayoutEffect, useRef, useState } from "react";
+import { ArrowUp, ClipboardPaste } from "lucide-react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type Ref,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { MAX_MESSAGE_CHARS } from "@/lib/chat/schema";
 
-const MAX_HEIGHT_PX = 200;
+const MAX_HEIGHT_PX = 208;
+
+export interface ComposerHandle {
+  /** Replaces the draft and puts the cursor at the end, ready to keep typing. */
+  setDraft(text: string): void;
+}
 
 export function Composer({
+  ref,
   onSend,
   disabled,
   readClipboard,
+  compact = false,
+  placeholder = "Message Bubble",
 }: {
+  ref?: Ref<ComposerHandle>;
   onSend: (text: string) => void;
   disabled?: boolean;
   /** Shows a paste button that inserts the clipboard text (bubble overlay). */
   readClipboard?: () => Promise<string>;
+  /** Overlay variant: tighter, no footnote. */
+  compact?: boolean;
+  placeholder?: string;
 }) {
   const [text, setText] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    setDraft(draft) {
+      setText(draft);
+      // After the new value renders: focus (opens the keyboard on phones) with the caret at the end.
+      requestAnimationFrame(() => {
+        const el = input.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      });
+    },
+  }));
   const trimmed = text.trim();
   const canSend = !disabled && trimmed.length > 0;
+  const nearLimit = text.length > MAX_MESSAGE_CHARS * 0.9;
 
   // Auto-grow up to MAX_HEIGHT_PX.
   useLayoutEffect(() => {
@@ -51,18 +86,22 @@ export function Composer({
   }
 
   return (
-    <form onSubmit={submit} className="border-t border-border bg-background px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-      <div className="mx-auto flex max-w-3xl items-end gap-2">
+    <div
+      className={`mx-auto w-full max-w-3xl ${compact ? "px-2 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]" : "px-3 pt-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6"}`}
+    >
+      <form
+        onSubmit={submit}
+        className={`flex items-end gap-1.5 border border-border bg-background shadow-composer transition-colors focus-within:border-foreground/25 dark:bg-surface ${compact ? "rounded-3xl p-1.5" : "rounded-[28px] p-2"}`}
+      >
         {readClipboard && (
           <button
             type="button"
             onClick={paste}
             aria-label="Paste from clipboard"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border hover:bg-muted"
+            title="Paste from clipboard"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface hover:text-foreground dark:hover:bg-surface-strong"
           >
-            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-              <path d="M9 4h6v3H9zM8 5H6v15h12V5h-2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ClipboardPaste className="size-[18px]" aria-hidden="true" />
           </button>
         )}
         <textarea
@@ -72,26 +111,32 @@ export function Composer({
           onKeyDown={onKeyDown}
           maxLength={MAX_MESSAGE_CHARS}
           rows={1}
-          placeholder="Message"
+          placeholder={placeholder}
           aria-label="Message"
-          className="min-h-10 flex-1 resize-none rounded-2xl border border-border bg-muted px-4 py-2 text-base outline-none focus:border-accent"
+          enterKeyHint="send"
+          className={`min-h-9 flex-1 resize-none bg-transparent py-1.5 text-base leading-6 outline-none placeholder:text-muted-foreground ${readClipboard ? "px-1" : "px-3"}`}
         />
         <button
           type="submit"
           disabled={!canSend}
           aria-label="Send"
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent text-white transition disabled:opacity-40"
+          title="Send"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-85 disabled:bg-surface-strong disabled:text-muted-foreground disabled:opacity-100"
         >
-          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-            <path d="M5 12h14M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <ArrowUp className="size-5" strokeWidth={2.25} aria-hidden="true" />
         </button>
-      </div>
-      {text.length > MAX_MESSAGE_CHARS * 0.9 && (
-        <p className="mx-auto mt-1 max-w-3xl text-right text-xs opacity-60">
-          {text.length} / {MAX_MESSAGE_CHARS}
+      </form>
+      {nearLimit ? (
+        <p className="mt-1.5 px-3 text-right text-xs text-muted-foreground">
+          {text.length.toLocaleString()} / {MAX_MESSAGE_CHARS.toLocaleString()}
         </p>
+      ) : (
+        !compact && (
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            Bubble can make mistakes. Check important info.
+          </p>
+        )
       )}
-    </form>
+    </div>
   );
 }

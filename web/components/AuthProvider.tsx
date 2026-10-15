@@ -1,6 +1,8 @@
 "use client";
 
 import { onAuthStateChanged, type User } from "firebase/auth";
+import { Settings } from "lucide-react";
+import { Notice } from "@/components/ui";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 
@@ -28,14 +30,10 @@ export function useAuth(): AuthState {
 
 function NotConfigured() {
   return (
-    <main className="flex h-dvh items-center justify-center p-6 text-center">
-      <div className="max-w-sm space-y-2">
-        <h1 className="text-lg font-semibold">Firebase isn&apos;t configured</h1>
-        <p className="text-sm opacity-70">
-          Copy <code>web/.env.example</code> to <code>web/.env.local</code>, fill in the Firebase
-          values and restart the dev server.
-        </p>
-      </div>
-    </main>
+    <Notice icon={Settings} title="Firebase isn't configured">
+      Copy <code className="font-mono text-foreground">web/.env.example</code> to{" "}
+      <code className="font-mono text-foreground">web/.env.local</code>, fill in the Firebase values and restart the dev
+      server.
+    </Notice>
   );
 }
