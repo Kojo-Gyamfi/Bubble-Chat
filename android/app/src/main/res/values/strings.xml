@@ -61,4 +61,6 @@
     <string name="action_failed">Couldn\'t open that. Try again.</string>
     <string name="image_unreadable">Couldn\'t read that image. Try a different photo.</string>
     <string name="capture_failed">Couldn\'t capture the screen. Try again.</string>
+    <string name="file_too_big">That file is too big. The limit is 3 MB.</string>
+    <string name="file_unreadable">Couldn\'t open that file. Try a different one.</string>
 </resources>

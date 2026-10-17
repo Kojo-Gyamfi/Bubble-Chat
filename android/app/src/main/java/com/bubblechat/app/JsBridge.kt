@@ -81,6 +81,7 @@ class JsBridge(private val service: OverlayService) {
         val speech = pm.queryIntentServices(Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE), 0).isNotEmpty()
         return JSONObject()
             .put("photo", true)
+            .put("file", true)
             // Screen capture as a foreground service needs Android 10+.
             .put("screen", Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             .put("voice", voice)
@@ -97,6 +98,12 @@ class JsBridge(private val service: OverlayService) {
             else -> return
         }
         service.runOnMain { service.launchAction(kind) }
+    }
+
+    @JavascriptInterface
+    fun pickFile() {
+        if (!trusted()) return
+        service.runOnMain { service.launchAction(ActionActivity.KIND_FILE) }
     }
 
     @JavascriptInterface

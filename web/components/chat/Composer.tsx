@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Camera,
   ClipboardPaste,
+  FileText,
   Image as ImageIcon,
   Loader2,
   Mic,
@@ -23,6 +24,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { FileChip } from "@/components/chat/FileChip";
+import { type Attachments, FILE_ACCEPT, type PreparedFile, prepareFile } from "@/lib/chat/files";
 import { prepareImage } from "@/lib/chat/image";
 import { type ChatImage, MAX_MESSAGE_CHARS } from "@/lib/chat/schema";
 import { useVoiceInput } from "@/lib/voice";
@@ -40,16 +43,23 @@ export interface ComposerHandle {
   setDraft(text: string): void;
   /** Adds text to the end of the draft (shared text, voice input). */
   appendText(text: string): void;
-  /** Attaches a photo (data URL or file), replacing any current one. */
+  /** Attaches a photo (data URL or file), replacing any current attachment. */
   attachImage(source: string | Blob): void;
+  /** Attaches a document (from the bubble app), replacing any current attachment. */
+  attachFile(source: { name: string; mimeType: string; dataUrl: string }): void;
   /** Shows a short error under the composer. */
   showError(message: string): void;
 }
 
-/** Where photos come from. Browsers use file inputs; the bubble app asks Android. */
+/** Where photos and documents come from. Browsers use file inputs; the bubble app asks Android. */
 export type PhotoSource =
   | { kind: "browser" }
-  | { kind: "native"; pick: (source: "camera" | "gallery") => void; captureScreen?: () => void }
+  | {
+      kind: "native";
+      pick: (source: "camera" | "gallery") => void;
+      captureScreen?: () => void;
+      pickFile?: () => void;
+    }
   | { kind: "none" };
 
 export function Composer({
@@ -64,7 +74,7 @@ export function Composer({
   placeholder = "Message Bubble",
 }: {
   ref?: Ref<ComposerHandle>;
-  onSend: (text: string, image?: ChatImage) => void;
+  onSend: (text: string, attachments: Attachments) => void;
   /** While `busy`, the send button becomes Stop. */
   onStop?: () => void;
   busy?: boolean;
@@ -79,11 +89,13 @@ export function Composer({
 }) {
   const [text, setText] = useState("");
   const [image, setImage] = useState<ChatImage | "loading" | null>(null);
+  const [doc, setDoc] = useState<PreparedFile | "loading" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const galleryInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const menuRoot = useRef<HTMLDivElement>(null);
   const attachRun = useRef(0);
 
@@ -102,9 +114,11 @@ export function Composer({
     focusEnd();
   };
 
+  // One attachment at a time: a new photo replaces a document and vice versa.
   function attach(source: string | Blob) {
     const run = ++attachRun.current;
     setError(null);
+    setDoc(null);
     setImage("loading");
     prepareImage(source)
       .then((prepared) => run === attachRun.current && setImage(prepared))
@@ -115,6 +129,26 @@ export function Composer({
       });
   }
 
+  function attachDocument(source: File | { name: string; mimeType: string; dataUrl: string }) {
+    const run = ++attachRun.current;
+    setError(null);
+    setImage(null);
+    setDoc("loading");
+    prepareFile(source)
+      .then((prepared) => run === attachRun.current && setDoc(prepared))
+      .catch((err: unknown) => {
+        if (run !== attachRun.current) return;
+        setDoc(null);
+        setError(err instanceof Error ? err.message : String(err));
+      });
+  }
+
+  function clearAttachment() {
+    attachRun.current++;
+    setImage(null);
+    setDoc(null);
+  }
+
   useImperativeHandle(ref, () => ({
     setDraft(draft) {
       setText(draft);
@@ -123,6 +157,7 @@ export function Composer({
     },
     appendText: append,
     attachImage: attach,
+    attachFile: attachDocument,
     showError: setError,
   }));
 
@@ -130,7 +165,9 @@ export function Composer({
 
   const trimmed = text.trim();
   const hasImage = image !== null && image !== "loading";
-  const canSend = !busy && image !== "loading" && (trimmed.length > 0 || hasImage);
+  const hasDoc = doc !== null && doc !== "loading";
+  const preparing = image === "loading" || doc === "loading";
+  const canSend = !busy && !preparing && (trimmed.length > 0 || hasImage || hasDoc);
   const nearLimit = text.length > MAX_MESSAGE_CHARS * 0.9;
   const hint = error ?? voice.error ?? notice;
 
@@ -172,9 +209,10 @@ export function Composer({
   function submit(e?: FormEvent) {
     e?.preventDefault();
     if (!canSend) return;
-    onSend(trimmed, hasImage ? image : undefined);
+    onSend(trimmed, { image: hasImage ? image : undefined, file: hasDoc ? doc : undefined });
     setText("");
     setImage(null);
+    setDoc(null);
     setError(null);
   }
 
@@ -182,6 +220,12 @@ export function Composer({
     const file = e.target.files?.[0];
     e.target.value = ""; // picking the same file again should still fire
     if (file) attach(file);
+  }
+
+  function onDocument(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) attachDocument(file);
   }
 
   async function paste() {
@@ -196,13 +240,16 @@ export function Composer({
     }
   }
 
-  type MenuAction = "camera" | "gallery" | "screen" | "paste";
+  type MenuAction = "camera" | "gallery" | "file" | "screen" | "paste";
   const menuItems: { action: MenuAction; icon: typeof Camera; label: string }[] = [];
   if (photos.kind !== "none") {
     menuItems.push(
       { action: "camera", icon: Camera, label: "Take photo" },
       { action: "gallery", icon: ImageIcon, label: "Choose photo" },
     );
+  }
+  if (photos.kind === "browser" || (photos.kind === "native" && photos.pickFile)) {
+    menuItems.push({ action: "file", icon: FileText, label: "Attach file" });
   }
   if (photos.kind === "native" && photos.captureScreen) {
     menuItems.push({ action: "screen", icon: MonitorSmartphone, label: "Ask about my screen" });
@@ -214,9 +261,10 @@ export function Composer({
     if (action === "paste") return void paste();
     if (photos.kind === "native") {
       if (action === "screen") photos.captureScreen?.();
+      else if (action === "file") photos.pickFile?.();
       else photos.pick(action);
     } else if (photos.kind === "browser") {
-      (action === "camera" ? cameraInput : galleryInput).current?.click();
+      ({ camera: cameraInput, gallery: galleryInput, file: fileInput, screen: null })[action]?.current?.click();
     }
   }
 
@@ -231,6 +279,7 @@ export function Composer({
         <>
           <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={onFile} />
           <input ref={galleryInput} type="file" accept="image/*" hidden onChange={onFile} />
+          <input ref={fileInput} type="file" accept={FILE_ACCEPT} hidden onChange={onDocument} />
         </>
       )}
       <form
@@ -249,15 +298,34 @@ export function Composer({
             )}
             <button
               type="button"
-              onClick={() => {
-                attachRun.current++;
-                setImage(null);
-              }}
+              onClick={clearAttachment}
               aria-label="Remove photo"
               className="absolute -top-1.5 -right-1.5 flex size-6 items-center justify-center rounded-full border border-border bg-background text-foreground shadow"
             >
               <X className="size-3.5" aria-hidden="true" />
             </button>
+          </div>
+        )}
+
+        {doc !== null && (
+          <div className="mb-1.5 ml-1 max-w-[min(100%,20rem)] animate-fade-up">
+            {doc === "loading" ? (
+              <div className="flex h-[54px] items-center gap-2 rounded-xl bg-surface-strong px-3 text-sm text-muted-foreground" aria-label="Preparing file">
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                Preparing file…
+              </div>
+            ) : (
+              <FileChip info={doc.info}>
+                <button
+                  type="button"
+                  onClick={clearAttachment}
+                  aria-label="Remove file"
+                  className="absolute -top-1.5 -right-1.5 flex size-6 items-center justify-center rounded-full border border-border bg-background text-foreground shadow"
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                </button>
+              </FileChip>
+            )}
           </div>
         )}
 
@@ -286,7 +354,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={() => setMenuOpen((o) => !o)}
-                aria-label="Add photo or more"
+                aria-label="Add photo, file or more"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 title="Add"

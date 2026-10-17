@@ -10,7 +10,7 @@ import { Sidebar } from "@/components/chat/Sidebar";
 import { IconButton, Notice, SecondaryButton } from "@/components/ui";
 import { deleteConversation } from "@/lib/chat/client";
 import { useChat, useConversations } from "@/lib/chat/hooks";
-import type { ChatImage } from "@/lib/chat/schema";
+import type { Attachments } from "@/lib/chat/files";
 import { signOut } from "@/lib/firebase/client";
 
 export function ChatApp({ user }: { user: User }) {
@@ -41,8 +41,8 @@ export function ChatApp({ user }: { user: User }) {
     setDrawerOpen(false);
   }
 
-  async function handleSend(text: string, image?: ChatImage) {
-    const id = await send(text, image);
+  async function handleSend(text: string, attachments: Attachments) {
+    const id = await send(text, attachments);
     if (id !== activeId) setActiveId(id);
   }
 

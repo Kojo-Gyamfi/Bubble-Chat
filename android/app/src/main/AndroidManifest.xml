@@ -66,7 +66,7 @@
             android:taskAffinity=""
             android:theme="@style/Theme.BubbleChat.Invisible" />
 
-        <!-- "Ask Bubble" in every app's text-selection menu, and Bubble Chat in the Share sheet. -->
+        <!-- "Ask Bubble" in every app's text-selection menu, and Bubble Chat in the Share sheet (text, photos, documents). -->
         <activity
             android:name=".AskActivity"
             android:excludeFromRecents="true"
@@ -82,8 +82,11 @@
             <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/*" />
                 <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/json" />
             </intent-filter>
         </activity>
 

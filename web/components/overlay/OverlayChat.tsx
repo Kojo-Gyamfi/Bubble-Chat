@@ -12,7 +12,7 @@ import { IconButton, Notice } from "@/components/ui";
 import { bridge, onNativeEvent } from "@/lib/bridge";
 import { deleteConversation, reportBubbleLinked } from "@/lib/chat/client";
 import { useChat, useConversations } from "@/lib/chat/hooks";
-import type { ChatImage } from "@/lib/chat/schema";
+import type { Attachments } from "@/lib/chat/files";
 import { useIsNative } from "@/lib/overlay-auth";
 
 /**
@@ -37,7 +37,12 @@ export function OverlayChat({ user }: { user: User }) {
   const photos: PhotoSource = !native
     ? { kind: "browser" } // testing /overlay in a normal browser
     : caps.photo
-      ? { kind: "native", pick: bridge.pickImage, captureScreen: caps.screen ? bridge.captureScreen : undefined }
+      ? {
+          kind: "native",
+          pick: bridge.pickImage,
+          captureScreen: caps.screen ? bridge.captureScreen : undefined,
+          pickFile: caps.file ? bridge.pickFile : undefined,
+        }
       : { kind: "none" };
 
   // Text/photos handed over by the app ("Ask Bubble", Share, camera, voice):
@@ -53,6 +58,7 @@ export function OverlayChat({ user }: { user: User }) {
       if (pending.text) target.appendText(pending.text);
       if (pending.voice) target.appendText(pending.voice);
       if (pending.image) target.attachImage(pending.image);
+      if (pending.file) target.attachFile(pending.file);
       if (pending.error) target.showError(pending.error);
       setDrawerOpen(false);
     };
@@ -76,8 +82,8 @@ export function OverlayChat({ user }: { user: User }) {
 
   const title = conversations?.find((c) => c.id === activeId)?.title ?? "New chat";
 
-  async function handleSend(text: string, image?: ChatImage) {
-    const id = await send(text, image);
+  async function handleSend(text: string, attachments: Attachments) {
+    const id = await send(text, attachments);
     if (id !== activeId) setSelected(id);
   }
 

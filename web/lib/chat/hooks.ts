@@ -6,7 +6,8 @@ import { collection, doc, limit, limitToLast, onSnapshot, orderBy, query, type T
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { db } from "@/lib/firebase/client";
 import { ChatRequestError, fetchMessagesLeft, newConversationId, newMessageId, streamChat } from "@/lib/chat/client";
-import type { ChatImage, ChatMessage, Conversation } from "@/lib/chat/schema";
+import type { Attachments } from "@/lib/chat/files";
+import type { ChatMessage, Conversation } from "@/lib/chat/schema";
 
 export type ListenerError = "permission-denied" | "unknown";
 
@@ -93,6 +94,7 @@ function useMessages(uid: string, conversationId: string | null) {
             role: d.get("role") as ChatMessage["role"],
             content: d.get("content") as string,
             image: (d.get("image") as string | undefined) || undefined,
+            file: (d.get("file") as ChatMessage["file"]) || undefined,
           })),
         }),
       (err) => {
@@ -122,8 +124,9 @@ export function friendlyError(err: unknown): string {
   if (err instanceof ChatRequestError) {
     if (err.status === 401) return "Your session expired. Sign in again.";
     if (err.status === 403) return "This account isn't allowed to use the chat.";
-    // Offline / timeout (0), limit reached (429), AI unavailable (503): the message is meant for users.
-    if (err.status === 0 || err.status === 429 || err.status === 503) return err.message;
+    // Offline / timeout (0), unreadable or too-big file (400/413), limit reached (429),
+    // AI unavailable (503): the server's message is meant for users.
+    if ([0, 400, 413, 429, 503].includes(err.status)) return err.message;
   }
   return "Something went wrong. Please try again.";
 }
@@ -157,9 +160,9 @@ export function useChat(user: User, conversationId: string | null) {
       .catch(() => {}); // only a hint
   }, [user]);
 
-  /** Sends a message (and optional photo); returns the conversation ID (new if none was active). */
+  /** Sends a message (and optional photo or document); returns the conversation ID (new if none was active). */
   const send = useCallback(
-    async (text: string, image?: ChatImage): Promise<string> => {
+    async (text: string, { image, file }: Attachments = {}): Promise<string> => {
       const convId = conversationId ?? newConversationId(user.uid);
       const userMessageId = newMessageId(user.uid, convId);
       const assistantMessageId = newMessageId(user.uid, convId);
@@ -176,7 +179,7 @@ export function useChat(user: User, conversationId: string | null) {
             p.conversationId !== convId ||
             (!saved.has(p.id) && p.pending !== "error"),
         ),
-        { id: userMessageId, conversationId: convId, role: "user", content: text, image: image?.thumbnail, pending: "streaming" },
+        { id: userMessageId, conversationId: convId, role: "user", content: text, image: image?.thumbnail, file: file?.info, pending: "streaming" },
         { id: assistantMessageId, conversationId: convId, role: "assistant", content: "", pending: "streaming" },
       ]);
 
@@ -190,7 +193,7 @@ export function useChat(user: User, conversationId: string | null) {
 
       void streamChat(
         user,
-        { conversationId: convId, userMessageId, assistantMessageId, message: text, image },
+        { conversationId: convId, userMessageId, assistantMessageId, message: text, image, file: file?.file },
         (chunk) => patch(assistantMessageId, (p) => ({ ...p, content: p.content + chunk })),
         { signal: controller.signal, onMessagesLeft },
       )

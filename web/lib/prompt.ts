@@ -49,10 +49,25 @@ export const PHOTO_ONLY_PROMPT =
 export const PAST_PHOTO_NOTE =
   "[The user attached a photo here. You can't see it any more; rely on what you said about it.]";
 
-/** Keeps the last MAX_CONTEXT_MESSAGES, starting on a user turn. The photo, if any, rides on the new message. */
-export function buildMessages(history: LlmMessage[], newMessage: string, image?: LlmMessage["image"]): LlmMessage[] {
+/** Model-side text for a document sent without a question. */
+export const FILE_ONLY_PROMPT =
+  "(The user sent this file without a question. Briefly summarise what it is and ask what they'd like to know.)";
+
+/**
+ * Keeps the last MAX_CONTEXT_MESSAGES, starting on a user turn. A photo or
+ * document, if any, rides on the new message.
+ */
+export function buildMessages(
+  history: LlmMessage[],
+  newMessage: string,
+  image?: LlmMessage["image"],
+  document?: LlmMessage["document"],
+): LlmMessage[] {
   const recent = history.filter((m) => m.content.trim()).slice(-(MAX_CONTEXT_MESSAGES - 1));
   while (recent.length && recent[0].role !== "user") recent.shift();
-  const content = newMessage || (image ? PHOTO_ONLY_PROMPT : "");
-  return [...recent, image ? { role: "user", content, image } : { role: "user", content }];
+  const content = newMessage || (image ? PHOTO_ONLY_PROMPT : document ? FILE_ONLY_PROMPT : "");
+  const message: LlmMessage = { role: "user", content };
+  if (image) message.image = image;
+  if (document) message.document = document;
+  return [...recent, message];
 }

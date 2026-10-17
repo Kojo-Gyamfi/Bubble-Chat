@@ -33,6 +33,10 @@ class ActionActivity : ComponentActivity() {
         if (uri != null) deliverImage(uri) else cancelled()
     }
 
+    private val pickDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) deliverDocument(uri) else cancelled()
+    }
+
     private val voice = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val text = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         OverlayService.deliver(this, voice = text)
@@ -59,6 +63,7 @@ class ActionActivity : ComponentActivity() {
                 KIND_GALLERY -> pickPhoto.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                 )
+                KIND_FILE -> pickDocument.launch(DocumentUtils.PICKER_TYPES)
                 KIND_VOICE -> voice.launch(
                     Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                         .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -97,6 +102,21 @@ class ActionActivity : ComponentActivity() {
         }.start()
     }
 
+    private fun deliverDocument(uri: Uri) {
+        val app = applicationContext
+        Thread {
+            val (saved, error) = try {
+                DocumentUtils.save(app, uri) to null
+            } catch (e: DocumentUtils.TooBig) {
+                null to getString(R.string.file_too_big)
+            }
+            runOnUiThread {
+                OverlayService.deliver(app, file = saved, error = error ?: if (saved == null) getString(R.string.file_unreadable) else null)
+                finish()
+            }
+        }.start()
+    }
+
     /** Back/cancel in the picker: just reopen the chat. */
     private fun cancelled() {
         OverlayService.deliver(this)
@@ -107,6 +127,7 @@ class ActionActivity : ComponentActivity() {
         private const val EXTRA_KIND = "kind"
         const val KIND_CAMERA = "camera"
         const val KIND_GALLERY = "gallery"
+        const val KIND_FILE = "file"
         const val KIND_VOICE = "voice"
         const val KIND_SCREEN = "screen"
 

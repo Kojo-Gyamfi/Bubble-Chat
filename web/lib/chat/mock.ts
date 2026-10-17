@@ -5,13 +5,14 @@ import "server-only";
 // MOCK_TOKEN_DELAY_MS slows it down (e.g. to test the Stop button).
 export async function* mockReply(
   message: string,
-  { image = false, signal }: { image?: boolean; signal?: AbortSignal } = {},
+  { image = false, documents = [], signal }: { image?: boolean; documents?: string[]; signal?: AbortSignal } = {},
 ): AsyncIterable<string> {
   const quoted = message.length > 200 ? `${message.slice(0, 200)}…` : message;
   const delay = Number(process.env.MOCK_TOKEN_DELAY_MS) || 20;
   const reply = [
     "This is a **mocked** reply (`LLM_PROVIDER=mock`). You asked:",
     ...(image ? ["", "📷 I can see the photo you attached (mock)."] : []),
+    ...(documents.length ? ["", `📄 I can read: ${documents.join(", ")} (mock).`] : []),
     "",
     `> ${quoted.replace(/\n/g, "\n> ")}`,
     "",

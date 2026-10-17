@@ -2,6 +2,7 @@
 
 import { AlertCircle, ArrowDown, Square, Volume2 } from "lucide-react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { FileChip } from "@/components/chat/FileChip";
 import { Markdown } from "@/components/chat/Markdown";
 import { CopyButton, IconButton } from "@/components/ui";
 import type { DisplayMessage } from "@/lib/chat/hooks";
@@ -102,6 +103,11 @@ function MessageItem({ message, compact }: { message: DisplayMessage; compact: b
             alt="Photo you sent"
             className={`rounded-2xl border border-border object-cover ${compact ? "max-h-40 max-w-[70%]" : "max-h-60 max-w-[60%]"}`}
           />
+        )}
+        {message.file && (
+          <div className="max-w-[85%] min-w-0">
+            <FileChip info={message.file} />
+          </div>
         )}
         {message.content && (
           <div

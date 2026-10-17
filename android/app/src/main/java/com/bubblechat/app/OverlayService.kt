@@ -150,6 +150,13 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
                 voice = intent?.getStringExtra(EXTRA_VOICE),
                 imagePath = intent?.getStringExtra(EXTRA_IMAGE),
                 error = intent?.getStringExtra(EXTRA_ERROR),
+                file = intent?.getStringExtra(EXTRA_FILE_PATH)?.let { path ->
+                    DocumentUtils.Saved(
+                        path,
+                        intent.getStringExtra(EXTRA_FILE_NAME) ?: "file",
+                        intent.getStringExtra(EXTRA_FILE_TYPE) ?: "application/octet-stream",
+                    )
+                },
             )
             // null intent = system restart after the process was killed (START_STICKY).
         }
@@ -751,16 +758,26 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
     private var pendingVoice: String? = null
     private var pendingImagePath: String? = null
     private var pendingError: String? = null
+    private var pendingFile: DocumentUtils.Saved? = null
 
     /** Something arrived for the chat (share sheet, "Ask Bubble", a picker): open the panel and tell the page. */
-    fun receive(text: String? = null, voice: String? = null, imagePath: String? = null, error: String? = null) {
+    fun receive(
+        text: String? = null,
+        voice: String? = null,
+        imagePath: String? = null,
+        error: String? = null,
+        file: DocumentUtils.Saved? = null,
+    ) {
         prefs.bubbleEnabled = true
         synchronized(pendingLock) {
             text?.let { pendingText = listOfNotNull(pendingText, it).joinToString("\n") }
             voice?.let { pendingVoice = listOfNotNull(pendingVoice, it).joinToString(" ") }
-            imagePath?.let { path ->
-                pendingImagePath?.let { File(it).delete() } // one photo per message
-                pendingImagePath = path
+            // One attachment per message: a new photo or document replaces the waiting one.
+            if (imagePath != null || file != null) {
+                pendingImagePath?.let { File(it).delete() }
+                pendingFile?.let { File(it.path).delete() }
+                pendingImagePath = imagePath
+                pendingFile = file
             }
             error?.let { pendingError = it }
         }
@@ -772,21 +789,24 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
 
     /** JSON for the page (NativePending in web/lib/bridge.ts), or "" if nothing is waiting. Bridge thread. */
     fun takePendingJson(): String {
-        val taken = synchronized(pendingLock) {
-            val all = listOf(pendingText, pendingVoice, pendingImagePath, pendingError)
+        val (taken, savedFile) = synchronized(pendingLock) {
+            val all = listOf(pendingText, pendingVoice, pendingImagePath, pendingError) to pendingFile
             pendingText = null
             pendingVoice = null
             pendingImagePath = null
             pendingError = null
+            pendingFile = null
             all
         }
         val (text, voice, imagePath, error) = taken
-        if (taken.all { it == null }) return ""
+        if (taken.all { it == null } && savedFile == null) return ""
         val image = imagePath?.let { ImageUtils.takeAsDataUrl(this, it) }
+        val file = savedFile?.let { DocumentUtils.takeAsJson(this, it) }
         return JSONObject().apply {
             text?.let { put("text", it) }
             voice?.let { put("voice", it) }
             image?.let { put("image", it) }
+            file?.let { put("file", it) }
             error?.let { put("error", it) }
         }.toString()
     }
@@ -1028,6 +1048,9 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         private const val EXTRA_VOICE = "voice"
         private const val EXTRA_IMAGE = "image"
         private const val EXTRA_ERROR = "error"
+        private const val EXTRA_FILE_PATH = "file_path"
+        private const val EXTRA_FILE_NAME = "file_name"
+        private const val EXTRA_FILE_TYPE = "file_type"
 
         const val ACTION_START = "com.bubblechat.app.action.START"
         const val ACTION_STOP = "com.bubblechat.app.action.STOP"
@@ -1057,9 +1080,10 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             voice: String? = null,
             imagePath: String? = null,
             error: String? = null,
+            file: DocumentUtils.Saved? = null,
         ) {
             instance?.let {
-                it.receive(text, voice, imagePath, error)
+                it.receive(text, voice, imagePath, error, file)
                 return
             }
             ContextCompat.startForegroundService(
@@ -1068,7 +1092,10 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
                     .putExtra(EXTRA_TEXT, text)
                     .putExtra(EXTRA_VOICE, voice)
                     .putExtra(EXTRA_IMAGE, imagePath)
-                    .putExtra(EXTRA_ERROR, error),
+                    .putExtra(EXTRA_ERROR, error)
+                    .putExtra(EXTRA_FILE_PATH, file?.path)
+                    .putExtra(EXTRA_FILE_NAME, file?.name)
+                    .putExtra(EXTRA_FILE_TYPE, file?.mimeType),
             )
         }
 

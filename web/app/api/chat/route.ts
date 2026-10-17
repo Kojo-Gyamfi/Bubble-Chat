@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { errorResponse, requireUser } from "@/lib/auth";
+import { readDocument } from "@/lib/chat/documents";
 import { chatRequestSchema } from "@/lib/chat/schema";
 import { appendAssistantMessage, appendUserMessage, loadHistory } from "@/lib/chat/store";
 import { streamAndPersist } from "@/lib/chat/stream";
@@ -10,7 +11,8 @@ import { consumeRequest, dayKey, limitMessage } from "@/lib/usage";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const NO_IMAGE_MODEL = "Photo questions are unavailable right now (the image-capable AI is busy). Try again later, or ask in text.";
+const NO_IMAGE_MODEL =
+  "Photo and scanned-document questions are unavailable right now (the AI that reads them is busy). Try again later, or ask in text.";
 
 export async function POST(req: Request) {
   try {
@@ -18,13 +20,18 @@ export async function POST(req: Request) {
 
     const parsed = chatRequestSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) {
-      return Response.json({ error: "Invalid request" }, { status: 400 });
+      return Response.json({ error: "That message couldn't be sent. Please try again." }, { status: 400 });
     }
-    const { conversationId, userMessageId, assistantMessageId, message, image } = parsed.data;
+    const { conversationId, userMessageId, assistantMessageId, message, image, file } = parsed.data;
+
+    // Read an attached document first: a bad file fails fast without using quota.
+    const document = file ? await readDocument(file) : undefined;
 
     // Before counting usage, so a misconfigured provider doesn't burn quota.
-    // Photos can only go to models that read images (Gemini, not the Groq fallback).
-    const chain = providerChain().filter((p) => !image || p.supportsImages);
+    // Photos (and scanned PDFs with no text) can only go to models that read images
+    // (Gemini, not the Groq fallback); other documents also work as plain text.
+    const needsVision = !!image || (!!document?.pdf && !document.text);
+    const chain = providerChain().filter((p) => !needsVision || p.supportsImages);
     if (chain.length === 0) return Response.json({ error: NO_IMAGE_MODEL }, { status: 503 });
 
     // Count usage and read history in parallel (the new message is excluded
@@ -40,7 +47,10 @@ export async function POST(req: Request) {
 
     // Save the user's message while the model starts on the reply; the reply
     // is only saved after the user's message has been.
-    const userSaved = appendUserMessage(user, conversationId, userMessageId, message, image?.thumbnail);
+    const userSaved = appendUserMessage(user, conversationId, userMessageId, message, {
+      image: image?.thumbnail,
+      document,
+    });
     // after(): finish the save even if we return early (e.g. 503 when every model fails).
     after(userSaved.catch((err) => console.error("Failed to save user message", err)));
 
@@ -51,7 +61,12 @@ export async function POST(req: Request) {
     let usage: LlmUsage | undefined;
     const reply = streamWithFallback(
       chain,
-      buildMessages(history, message, image && { data: image.data, mediaType: image.mediaType }),
+      buildMessages(
+        history,
+        message,
+        image && { data: image.data, mediaType: image.mediaType },
+        document && { name: document.name, text: document.text, pdf: document.pdf },
+      ),
       {
         system: systemPrompt(),
         maxTokens: MAX_OUTPUT_TOKENS,

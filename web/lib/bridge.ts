@@ -24,6 +24,8 @@ interface AndroidBridge {
   /** "camera" | "gallery": the panel hides while the system picker is open. */
   pickImage?(source: string): void;
   captureScreen?(): void;
+  /** Document picker (app 0.4+): PDF, Word, text. */
+  pickFile?(): void;
   startVoiceInput?(): void;
   /** JSON NativePending, or "" when there's nothing. */
   takePending?(): string;
@@ -33,6 +35,7 @@ interface AndroidBridge {
 
 export interface NativeCapabilities {
   photo: boolean;
+  file: boolean;
   screen: boolean;
   voice: boolean;
   speech: boolean;
@@ -46,6 +49,8 @@ export interface NativePending {
   voice?: string;
   /** Photo/screenshot as a JPEG data URL. */
   image?: string;
+  /** Document picked or shared into the bubble. */
+  file?: { name: string; mimeType: string; dataUrl: string };
   /** Something went wrong natively (e.g. no camera app). */
   error?: string;
 }
@@ -59,7 +64,7 @@ export function onNativeEvent(listener: (event: NativeEvent) => void): () => voi
   return () => window.removeEventListener("bubble-native", handler);
 }
 
-const NO_CAPABILITIES: NativeCapabilities = { photo: false, screen: false, voice: false, speech: false };
+const NO_CAPABILITIES: NativeCapabilities = { photo: false, file: false, screen: false, voice: false, speech: false };
 
 declare global {
   interface Window {
@@ -112,6 +117,10 @@ export const bridge = {
 
   captureScreen(): void {
     call((a) => a.captureScreen?.(), undefined);
+  },
+
+  pickFile(): void {
+    call((a) => a.pickFile?.(), undefined);
   },
 
   startVoiceInput(): void {

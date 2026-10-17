@@ -4,6 +4,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createGroq } from "@ai-sdk/groq";
 import { APICallError, type LanguageModel, type ModelMessage, streamText } from "ai";
 import { HttpError } from "@/lib/auth";
+import { documentAsText } from "@/lib/chat/documents";
 import { mockReply } from "@/lib/chat/mock";
 
 export interface LlmMessage {
@@ -11,6 +12,11 @@ export interface LlmMessage {
   content: string;
   /** A photo sent with this (user) message; only the newest message carries one. */
   image?: { data: string; mediaType: string };
+  /**
+   * An attached document. Models that read files get the PDF itself; others
+   * (and every non-PDF) get its extracted text appended to the message.
+   */
+  document?: { name: string; text: string; pdf?: string };
 }
 
 export interface LlmUsage {
@@ -28,7 +34,7 @@ export interface StreamOptions {
 
 export interface LlmProvider {
   name: string;
-  /** Can read images (Gemini). Photo messages skip providers that can't. */
+  /** Can read images and PDFs (Gemini). Photo messages skip providers that can't. */
   supportsImages: boolean;
   stream(messages: LlmMessage[], opts: StreamOptions): AsyncIterable<string>;
 }
@@ -50,7 +56,7 @@ export function aiSdkProvider(
       const result = streamText({
         model,
         instructions: system,
-        messages: messages.map(toModelMessage),
+        messages: messages.map((m) => toModelMessage(m, supportsImages)),
         abortSignal,
         maxOutputTokens: maxTokens,
         // Fall back to the next provider instead of retrying a rate-limited one.
@@ -78,9 +84,22 @@ export function aiSdkProvider(
   };
 }
 
-/** The photo goes before the text, as Gemini recommends. */
-function toModelMessage(m: LlmMessage): ModelMessage {
+/** Attachments go before the text, as Gemini recommends. */
+function toModelMessage(m: LlmMessage, readsFiles: boolean): ModelMessage {
   if (m.role === "assistant") return { role: "assistant", content: m.content };
+  const doc = m.document;
+  if (doc && !(readsFiles && doc.pdf)) {
+    return { role: "user", content: `${m.content}\n\n${documentAsText(doc.name, doc.text)}` };
+  }
+  if (doc?.pdf) {
+    return {
+      role: "user",
+      content: [
+        { type: "file", data: doc.pdf, mediaType: "application/pdf", filename: doc.name },
+        { type: "text", text: `${m.content}\n\n[Attached file: ${doc.name}]` },
+      ],
+    };
+  }
   if (!m.image) return { role: "user", content: m.content };
   return {
     role: "user",
@@ -96,7 +115,11 @@ const mockProvider: LlmProvider = {
   supportsImages: true,
   stream: (messages, { abortSignal }) => {
     const last = messages.at(-1);
-    return mockReply(last?.content ?? "", { image: !!last?.image, signal: abortSignal });
+    // Names every document the model would see (this message or earlier ones), so tests can check follow-ups.
+    const documents = messages.flatMap((m) =>
+      m.document ? [m.document.name] : [...m.content.matchAll(/\[Attached file: ([^\]]+)\]/g)].map((x) => x[1]),
+    );
+    return mockReply(last?.content ?? "", { image: !!last?.image, documents, signal: abortSignal });
   },
 };
 

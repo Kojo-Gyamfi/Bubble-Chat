@@ -28,15 +28,38 @@ class AskActivity : ComponentActivity() {
 
         val text = sharedText()?.trim()?.take(MAX_TEXT_CHARS)?.takeIf { it.isNotEmpty() }
         val image = sharedImage()
-        if (image == null) {
+        val document = sharedDocument()
+        if (image == null && document == null) {
             OverlayService.deliver(this, text = text)
             return finish()
         }
 
         val app = applicationContext
+        if (document != null) {
+            // Copy the document while this activity still holds the share grant for it.
+            Thread {
+                val (saved, error) = try {
+                    DocumentUtils.save(app, document) to null
+                } catch (e: DocumentUtils.TooBig) {
+                    null to getString(R.string.file_too_big)
+                }
+                runOnUiThread {
+                    OverlayService.deliver(
+                        app,
+                        text = text,
+                        file = saved,
+                        error = error ?: if (saved == null) getString(R.string.file_unreadable) else null,
+                    )
+                    finish()
+                }
+            }.start()
+            return
+        }
+
         // Read the photo while this activity still holds the share grant for it.
+        val photo = image ?: return finish()
         Thread {
-            val path = ImageUtils.decode(app, image)?.let { ImageUtils.save(app, it).also { _ -> it.recycle() } }
+            val path = ImageUtils.decode(app, photo)?.let { ImageUtils.save(app, it).also { _ -> it.recycle() } }
             runOnUiThread {
                 OverlayService.deliver(
                     app,
@@ -58,6 +81,12 @@ class AskActivity : ComponentActivity() {
             listOfNotNull(subject?.takeIf { body == null || !body.contains(it) }, body).joinToString("\n").ifEmpty { null }
         }
         else -> null
+    }
+
+    /** A shared document (PDF, Word, text file…): a stream that isn't an image. */
+    private fun sharedDocument(): Uri? {
+        if (intent.action != Intent.ACTION_SEND || intent.type?.startsWith("image/") == true) return null
+        return IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
     }
 
     private fun sharedImage(): Uri? {

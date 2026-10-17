@@ -23,6 +23,39 @@ export const imageSchema = z.object({
 
 export type ChatImage = z.infer<typeof imageSchema>;
 
+/** Documents: 3 MB keeps the request (base64) under Vercel's 4.5 MB body limit. */
+export const MAX_FILE_BYTES = 3 * 1024 * 1024;
+
+export const FILE_MEDIA_TYPES = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  /** Every text-like file (txt, md, csv, json, code…) is sent as text/plain; the name keeps its extension. */
+  text: "text/plain",
+} as const;
+
+export const fileSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^[^\\/\p{Cc}]+$/u),
+  mediaType: z.enum([FILE_MEDIA_TYPES.pdf, FILE_MEDIA_TYPES.docx, FILE_MEDIA_TYPES.text]),
+  data: z
+    .string()
+    .max(Math.ceil(MAX_FILE_BYTES / 3) * 4)
+    .regex(base64),
+});
+
+export type ChatFile = z.infer<typeof fileSchema>;
+
+/** What the chat shows for an attached document (the file itself isn't kept). */
+export interface FileInfo {
+  name: string;
+  mediaType: string;
+  size: number;
+}
+
 export const chatRequestSchema = z
   .object({
     conversationId: docId,
@@ -30,9 +63,11 @@ export const chatRequestSchema = z
     assistantMessageId: docId,
     message: z.string().trim().max(MAX_MESSAGE_CHARS).default(""),
     image: imageSchema.optional(),
+    file: fileSchema.optional(),
   })
-  // A photo on its own is fine; an empty message without one isn't.
-  .refine((r) => r.message.length > 0 || r.image, { message: "Message is empty" });
+  // A photo or file on its own is fine; an empty message without one isn't.
+  .refine((r) => r.message.length > 0 || r.image || r.file, { message: "Message is empty" })
+  .refine((r) => !(r.image && r.file), { message: "One attachment per message" });
 
 export type ChatRequest = z.input<typeof chatRequestSchema>;
 
@@ -44,6 +79,8 @@ export interface ChatMessage {
   content: string;
   /** User messages with a photo: its thumbnail as a data URL. */
   image?: string;
+  /** User messages with a document: its name/type/size. */
+  file?: FileInfo;
 }
 
 export interface Conversation {

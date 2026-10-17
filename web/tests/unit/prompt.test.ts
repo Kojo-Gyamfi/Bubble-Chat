@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LlmMessage } from "@/lib/llm";
-import { buildMessages, CREATOR_ANSWER, MAX_CONTEXT_MESSAGES, PHOTO_ONLY_PROMPT, systemPrompt } from "@/lib/prompt";
+import { buildMessages, CREATOR_ANSWER, FILE_ONLY_PROMPT, MAX_CONTEXT_MESSAGES, PHOTO_ONLY_PROMPT, systemPrompt } from "@/lib/prompt";
 
 const turn = (i: number): LlmMessage[] => [
   { role: "user", content: `q${i}` },
@@ -62,5 +62,17 @@ describe("buildMessages with a photo", () => {
 
   it("asks the model to describe a photo sent without text", () => {
     expect(buildMessages([], "", image).at(-1)).toEqual({ role: "user", content: PHOTO_ONLY_PROMPT, image });
+  });
+});
+
+describe("buildMessages with a document", () => {
+  const document = { name: "notes.txt", text: "Milk, eggs" };
+
+  it("attaches the document to the new message", () => {
+    expect(buildMessages([], "summarise", undefined, document).at(-1)).toEqual({ role: "user", content: "summarise", document });
+  });
+
+  it("asks for a summary when the file comes without a question", () => {
+    expect(buildMessages([], "", undefined, document).at(-1)?.content).toBe(FILE_ONLY_PROMPT);
   });
 });
