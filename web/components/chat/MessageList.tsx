@@ -1,10 +1,11 @@
 "use client";
 
-import { AlertCircle, ArrowDown } from "lucide-react";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AlertCircle, ArrowDown, Square, Volume2 } from "lucide-react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Markdown } from "@/components/chat/Markdown";
-import { CopyButton } from "@/components/ui";
+import { CopyButton, IconButton } from "@/components/ui";
 import type { DisplayMessage } from "@/lib/chat/hooks";
+import { canSpeak, speak, stopSpeaking, useSpeakingId } from "@/lib/speech";
 
 const STICK_THRESHOLD_PX = 80;
 
@@ -93,13 +94,23 @@ export function MessageList({
 function MessageItem({ message, compact }: { message: DisplayMessage; compact: boolean }) {
   if (message.role === "user") {
     return (
-      <div className="group flex flex-col items-end">
-        <div
-          className={`max-w-[85%] rounded-3xl bg-surface whitespace-pre-wrap break-words ${compact ? "px-3.5 py-2" : "px-5 py-2.5"}`}
-        >
-          {message.content}
-        </div>
-        {!compact && !message.pending && (
+      <div className="group flex flex-col items-end gap-1.5">
+        {message.image && (
+          // eslint-disable-next-line @next/next/no-img-element -- thumbnail data URL from Firestore
+          <img
+            src={message.image}
+            alt="Photo you sent"
+            className={`rounded-2xl border border-border object-cover ${compact ? "max-h-40 max-w-[70%]" : "max-h-60 max-w-[60%]"}`}
+          />
+        )}
+        {message.content && (
+          <div
+            className={`max-w-[85%] rounded-3xl bg-surface whitespace-pre-wrap break-words ${compact ? "px-3.5 py-2" : "px-5 py-2.5"}`}
+          >
+            {message.content}
+          </div>
+        )}
+        {!compact && !message.pending && message.content && (
           <div className="mt-1 flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <CopyButton text={message.content} label="Copy message" />
           </div>
@@ -134,8 +145,22 @@ function MessageItem({ message, compact }: { message: DisplayMessage; compact: b
       {!message.pending && (
         <div className="mt-1.5 -ml-1.5 flex items-center gap-0.5">
           <CopyButton text={message.content} />
+          <ReadAloudButton id={message.id} text={message.content} />
         </div>
       )}
     </div>
+  );
+}
+
+const noSubscribe = () => () => {};
+
+function ReadAloudButton({ id, text }: { id: string; text: string }) {
+  const supported = useSyncExternalStore(noSubscribe, canSpeak, () => false);
+  const speaking = useSpeakingId() === id;
+  if (!supported) return null;
+  return speaking ? (
+    <IconButton icon={Square} label="Stop reading" size="sm" onClick={stopSpeaking} />
+  ) : (
+    <IconButton icon={Volume2} label="Read aloud" size="sm" onClick={() => speak(id, text)} />
   );
 }

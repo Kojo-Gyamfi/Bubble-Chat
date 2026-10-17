@@ -25,12 +25,26 @@ export function dayKey(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
-export type LimitResult = { ok: true } | { ok: false; scope: "user" | "global"; limit: number };
+export type LimitResult =
+  | { ok: true; /** The user's messages left today after this one. */ remaining: number }
+  | { ok: false; scope: "user" | "global"; limit: number };
 
 export function checkLimits(userRequests: number, globalRequests: number, limits: Limits): LimitResult {
   if (userRequests >= limits.perUser) return { ok: false, scope: "user", limit: limits.perUser };
   if (globalRequests >= limits.global) return { ok: false, scope: "global", limit: limits.global };
-  return { ok: true };
+  return { ok: true, remaining: limits.perUser - userRequests - 1 };
+}
+
+/** The user's messages left today, for the counter under the composer (no write). */
+export async function remainingToday(uid: string, day: string, limits = limitsFromEnv()) {
+  const db = adminDb();
+  const ids = usageDocIds(uid, day);
+  const [userSnap, globalSnap] = await db.getAll(db.doc(ids.user), db.doc(ids.global));
+  const used = (userSnap.get("requests") as number | undefined) ?? 0;
+  const globalUsed = (globalSnap.get("requests") as number | undefined) ?? 0;
+  // Everyone is out once the shared cap is hit.
+  const remaining = globalUsed >= limits.global ? 0 : Math.max(0, limits.perUser - used);
+  return { remaining, limit: limits.perUser };
 }
 
 export function limitMessage(result: Extract<LimitResult, { ok: false }>): string {

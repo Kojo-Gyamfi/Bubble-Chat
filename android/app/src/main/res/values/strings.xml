@@ -51,4 +51,12 @@
     <string name="panel_offline">Can\'t reach Bubble right now.</string>
     <string name="panel_retry">Try again</string>
     <string name="bubble_content_desc">Open Bubble chat</string>
+
+    <string name="ask_bubble">Ask Bubble</string>
+    <string name="voice_prompt">Speak to Bubble</string>
+    <string name="no_camera_app">No camera app found on this phone.</string>
+    <string name="no_voice_app">Voice typing needs the Google app. Use the keyboard\'s mic instead.</string>
+    <string name="action_failed">Couldn\'t open that. Try again.</string>
+    <string name="image_unreadable">Couldn\'t read that image. Try a different photo.</string>
+    <string name="capture_failed">Couldn\'t capture the screen. Try again.</string>
 </resources>

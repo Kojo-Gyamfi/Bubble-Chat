@@ -16,6 +16,7 @@ async function collect(stream: AsyncIterable<string>): Promise<string> {
 function fake(name: string, chunks: string[], failAt?: number): LlmProvider {
   return {
     name,
+    supportsImages: false,
     async *stream() {
       for (const [i, chunk] of chunks.entries()) {
         if (i === failAt) throw new Error(`${name} failed`);

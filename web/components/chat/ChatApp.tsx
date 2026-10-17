@@ -3,13 +3,14 @@
 import type { User } from "firebase/auth";
 import { Menu, PanelLeft, ShieldAlert, SquarePen } from "lucide-react";
 import { useRef, useState } from "react";
-import { Composer, type ComposerHandle } from "@/components/chat/Composer";
+import { Composer, type ComposerHandle, messagesLeftNotice } from "@/components/chat/Composer";
 import { EmptyState } from "@/components/chat/EmptyState";
 import { MessageList } from "@/components/chat/MessageList";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { IconButton, Notice, SecondaryButton } from "@/components/ui";
 import { deleteConversation } from "@/lib/chat/client";
 import { useChat, useConversations } from "@/lib/chat/hooks";
+import type { ChatImage } from "@/lib/chat/schema";
 import { signOut } from "@/lib/firebase/client";
 
 export function ChatApp({ user }: { user: User }) {
@@ -17,7 +18,7 @@ export function ChatApp({ user }: { user: User }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true); // desktop only
-  const { messages, loading, busy, send } = useChat(user, activeId);
+  const { messages, loading, busy, send, stop, messagesLeft } = useChat(user, activeId);
   const composer = useRef<ComposerHandle>(null);
 
   if (error === "permission-denied") {
@@ -40,8 +41,8 @@ export function ChatApp({ user }: { user: User }) {
     setDrawerOpen(false);
   }
 
-  async function handleSend(text: string) {
-    const id = await send(text);
+  async function handleSend(text: string, image?: ChatImage) {
+    const id = await send(text, image);
     if (id !== activeId) setActiveId(id);
   }
 
@@ -106,7 +107,13 @@ export function ChatApp({ user }: { user: User }) {
           loading={loading}
           empty={<EmptyState name={user.displayName} onStart={(starter) => composer.current?.setDraft(starter)} />}
         />
-        <Composer ref={composer} onSend={handleSend} disabled={busy} />
+        <Composer
+          ref={composer}
+          onSend={handleSend}
+          onStop={stop}
+          busy={busy}
+          notice={messagesLeftNotice(messagesLeft)}
+        />
       </main>
     </div>
   );

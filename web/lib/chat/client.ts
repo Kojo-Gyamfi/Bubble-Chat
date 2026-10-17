@@ -76,11 +76,25 @@ export async function revokeAllSessions(user: User): Promise<void> {
   await authedFetch(user, "/api/revoke", { method: "POST" });
 }
 
+/** Messages the user has left today (for the "N left" hint). */
+export async function fetchMessagesLeft(user: User): Promise<number> {
+  const res = await authedFetch(user, "/api/usage");
+  return ((await res.json()) as { remaining: number }).remaining;
+}
+
+export interface StreamChatOptions {
+  /** Aborting it is the Stop button: the reply ends and what arrived is kept. */
+  signal?: AbortSignal;
+  onMessagesLeft?: (remaining: number) => void;
+}
+
+/** Streams a reply. Resolves with stopped=true if the user pressed Stop. */
 export async function streamChat(
   user: User,
   request: ChatRequest,
   onChunk: (chunk: string) => void,
-): Promise<void> {
+  { signal, onMessagesLeft }: StreamChatOptions = {},
+): Promise<{ stopped: boolean }> {
   // Abort if nothing arrives for a while, so a stalled connection can't leave
   // the composer stuck in "busy" forever. Reset on every chunk.
   const controller = new AbortController();
@@ -89,6 +103,9 @@ export async function streamChat(
     clearTimeout(idle);
     idle = setTimeout(() => controller.abort(), STREAM_IDLE_TIMEOUT_MS);
   };
+  const userStopped = () => signal?.aborted === true;
+  const onStop = () => controller.abort();
+  signal?.addEventListener("abort", onStop, { once: true });
 
   try {
     const res = await authedFetch(user, "/api/chat", {
@@ -97,6 +114,9 @@ export async function streamChat(
       body: JSON.stringify(request),
       signal: controller.signal,
     });
+    const left = Number.parseInt(res.headers.get("X-Messages-Left") ?? "", 10);
+    if (Number.isFinite(left)) onMessagesLeft?.(left);
+    if (res.status === 204) return { stopped: true }; // stopped before the first word
     if (!res.body) throw new ChatRequestError(res.status, "Empty response");
 
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -106,12 +126,18 @@ export async function streamChat(
       if (done) break;
       onChunk(value);
     }
+    return { stopped: false };
   } catch (err) {
-    if (err instanceof ChatRequestError) throw err;
+    if (userStopped()) return { stopped: true };
+    if (err instanceof ChatRequestError) {
+      if (err.status === 429) onMessagesLeft?.(0);
+      throw err;
+    }
     // Reading the stream failed: aborted by the idle timer or the connection dropped.
-    // The server still finishes and saves the reply; it shows up via Firestore.
+    // The server saves what it generated; it shows up via Firestore.
     throw new ChatRequestError(0, controller.signal.aborted ? TOO_SLOW : UNREACHABLE);
   } finally {
     clearTimeout(idle);
+    signal?.removeEventListener("abort", onStop);
   }
 }

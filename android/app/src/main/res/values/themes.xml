@@ -5,4 +5,13 @@
         <item name="colorOnPrimary">#FFFFFF</item>
         <item name="android:windowBackground">@color/screen_background</item>
     </style>
+
+    <!-- ActionActivity / AskActivity: no visible window of their own. -->
+    <style name="Theme.BubbleChat.Invisible" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

@@ -5,8 +5,8 @@ const limits = { perUser: 25, global: 200 };
 
 describe("checkLimits", () => {
   it("allows requests under both caps", () => {
-    expect(checkLimits(0, 0, limits)).toEqual({ ok: true });
-    expect(checkLimits(24, 199, limits)).toEqual({ ok: true });
+    expect(checkLimits(0, 0, limits)).toEqual({ ok: true, remaining: 24 });
+    expect(checkLimits(24, 199, limits)).toEqual({ ok: true, remaining: 0 });
   });
 
   it("blocks the request after the per-user cap", () => {

@@ -151,7 +151,8 @@ Goal: real streamed answers from a free-tier LLM, with every request tied to an 
 3. In **one transaction, before calling the LLM**: check and increment `usage/{uid}_{today}` against the per-user cap and `usage/global_{today}` against the global cap. Aborted or failed streams still count, and parallel requests can't overshoot.
 4. Server writes the user message (from the request body, under the client's `userMessageId`), then loads the last N messages of the conversation (admin SDK), builds the prompt, and calls the LLM with streaming. Because the server wrote the user message itself, there's no race with a client write.
 5. Response is streamed back as plain text chunks (`ReadableStream`, `Content-Type: text/plain; charset=utf-8`), which works in both browsers and the Android WebView without SSE quirks.
-6. The server consumes the LLM stream to completion **even if the client disconnects** (tee the stream; persist in `after()` from `next/server`), then writes the assistant message (under `assistantMessageId`), `updatedAt`, `messageCount` and token counts in one batch. Clients never write messages.
+6. The server streams the reply and persists it in `after()` from `next/server`: the assistant message (under `assistantMessageId`), `updatedAt`, `messageCount` and token counts in one batch. Clients never write messages. **Stop button:** when the client disconnects (Stop, closed page, dropped connection) the model call is aborted and the partial reply is saved with a `_(stopped)_` note. The response carries `X-Messages-Left`; `GET /api/usage` returns it for the "N messages left today" hint.
+7. **Photos:** the body may carry `image: { mediaType, data (base64, client-resized ≤1280 px), thumbnail (data URL ≤60 KB) }`. Only the thumbnail is stored (Firebase Storage needs Blaze); later turns get a "[photo attached earlier]" note instead of the image. Photo requests use only image-capable providers (Gemini), else 503.
 
 All API routes: `export const runtime = 'nodejs'` (firebase-admin does not run on Edge).
 
@@ -237,8 +238,14 @@ Native → exposed on `window.Android` via `@JavascriptInterface`:
 | `getAppVersion()` | string | show in settings, for update checks |
 | `onLinked()` | void | web signed in with the custom token; native clears it from `Prefs` |
 | `setAccount(account)` | void | signed-in email ("" = signed out); the app's Account section shows "Account linked" (optional: missing in older APKs) |
+| `getCapabilities()` | JSON | `{photo, screen, voice, speech}`; the page only shows buttons that work (all missing in app 0.1) |
+| `pickImage("camera"|"gallery")`, `captureScreen()`, `startVoiceInput()` | void | native opens the camera / photo picker / screen-capture consent / Google voice typing via the invisible `ActionActivity` (panel collapses meanwhile) |
+| `takePending()` | JSON or "" | text from "Ask Bubble"/Share, voice result, photo (JPEG data URL) or error waiting for the page; taken once |
+| `speak(text)`, `stopSpeaking()` | void | read an answer aloud with Android TextToSpeech |
 
-Web → native events are not needed in v1; the native side only reacts to the calls above.
+Native → web events: `window.dispatchEvent(new CustomEvent("bubble-native", { detail: { type } }))` with `type` `"pending"` (call `takePending()`) or `"tts-end"` (reading finished).
+
+"Ask Bubble" (text-selection menu, `ACTION_PROCESS_TEXT`) and the Share sheet (`ACTION_SEND` text/image) go to `AskActivity`, which opens the bubble with the text/photo in the composer; nothing is sent until the user taps Send.
 
 ### Web tasks
 

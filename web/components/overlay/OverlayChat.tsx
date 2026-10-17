@@ -2,16 +2,17 @@
 
 import type { User } from "firebase/auth";
 import { Menu, Minus, ShieldAlert, SquarePen } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Composer } from "@/components/chat/Composer";
+import { useEffect, useRef, useState } from "react";
+import { Composer, type ComposerHandle, messagesLeftNotice, type PhotoSource } from "@/components/chat/Composer";
 import { EmptyState } from "@/components/chat/EmptyState";
 import { MessageList } from "@/components/chat/MessageList";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { FullScreenSpinner } from "@/components/Spinner";
 import { IconButton, Notice } from "@/components/ui";
-import { bridge } from "@/lib/bridge";
+import { bridge, onNativeEvent } from "@/lib/bridge";
 import { deleteConversation, reportBubbleLinked } from "@/lib/chat/client";
 import { useChat, useConversations } from "@/lib/chat/hooks";
+import type { ChatImage } from "@/lib/chat/schema";
 import { useIsNative } from "@/lib/overlay-auth";
 
 /**
@@ -27,8 +28,37 @@ export function OverlayChat({ user }: { user: User }) {
   const [selected, setSelected] = useState<string | null | undefined>(undefined);
   if (selected === undefined && conversations) setSelected(conversations[0]?.id ?? null);
   const activeId = selected ?? null;
-  const { messages, loading, busy, send } = useChat(user, activeId);
+  const { messages, loading, busy, send, stop, messagesLeft } = useChat(user, activeId);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const composer = useRef<ComposerHandle>(null);
+
+  // What this version of the bubble app can do (older APKs: nothing, so no buttons).
+  const [caps] = useState(() => bridge.capabilities());
+  const photos: PhotoSource = !native
+    ? { kind: "browser" } // testing /overlay in a normal browser
+    : caps.photo
+      ? { kind: "native", pick: bridge.pickImage, captureScreen: caps.screen ? bridge.captureScreen : undefined }
+      : { kind: "none" };
+
+  // Text/photos handed over by the app ("Ask Bubble", Share, camera, voice):
+  // taken once the composer exists, then whenever the app says there's more.
+  const ready = selected !== undefined;
+  useEffect(() => {
+    if (!ready) return;
+    const drain = () => {
+      const target = composer.current;
+      if (!target) return;
+      const pending = bridge.takePending();
+      if (!pending) return;
+      if (pending.text) target.appendText(pending.text);
+      if (pending.voice) target.appendText(pending.voice);
+      if (pending.image) target.attachImage(pending.image);
+      if (pending.error) target.showError(pending.error);
+      setDrawerOpen(false);
+    };
+    drain();
+    return onNativeEvent((e) => e.type === "pending" && drain());
+  }, [ready]);
 
   // Lets the PWA's "Link bubble app" page show this bubble as already linked.
   useEffect(() => {
@@ -46,8 +76,8 @@ export function OverlayChat({ user }: { user: User }) {
 
   const title = conversations?.find((c) => c.id === activeId)?.title ?? "New chat";
 
-  async function handleSend(text: string) {
-    const id = await send(text);
+  async function handleSend(text: string, image?: ChatImage) {
+    const id = await send(text, image);
     if (id !== activeId) setSelected(id);
   }
 
@@ -95,7 +125,17 @@ export function OverlayChat({ user }: { user: User }) {
       )}
 
       <MessageList messages={messages} loading={loading} compact empty={<EmptyState compact />} />
-      <Composer onSend={handleSend} disabled={busy} readClipboard={bridge.readClipboard} compact placeholder="Message" />
+      <Composer
+        ref={composer}
+        onSend={handleSend}
+        onStop={stop}
+        busy={busy}
+        readClipboard={native ? bridge.readClipboard : undefined}
+        photos={photos}
+        notice={messagesLeftNotice(messagesLeft)}
+        compact
+        placeholder="Message"
+      />
     </div>
   );
 }

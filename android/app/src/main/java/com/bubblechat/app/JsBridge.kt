@@ -3,7 +3,12 @@ package com.bubblechat.app
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import android.webkit.JavascriptInterface
+import org.json.JSONObject
 
 /**
  * `window.Android` for the /overlay page. Must match web/lib/bridge.ts.
@@ -66,7 +71,64 @@ class JsBridge(private val service: OverlayService) {
     @JavascriptInterface
     fun getAppVersion(): String = BuildConfig.VERSION_NAME
 
+    // ---- photos, screen, voice, read aloud (web/lib/bridge.ts NativeCapabilities) ----
+
+    /** What this phone + app version can do, so the page only shows buttons that work. */
+    @JavascriptInterface
+    fun getCapabilities(): String {
+        val pm = service.packageManager
+        val voice = pm.queryIntentActivities(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0).isNotEmpty()
+        val speech = pm.queryIntentServices(Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE), 0).isNotEmpty()
+        return JSONObject()
+            .put("photo", true)
+            // Screen capture as a foreground service needs Android 10+.
+            .put("screen", Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            .put("voice", voice)
+            .put("speech", speech)
+            .toString()
+    }
+
+    @JavascriptInterface
+    fun pickImage(source: String) {
+        if (!trusted()) return
+        val kind = when (source) {
+            "camera" -> ActionActivity.KIND_CAMERA
+            "gallery" -> ActionActivity.KIND_GALLERY
+            else -> return
+        }
+        service.runOnMain { service.launchAction(kind) }
+    }
+
+    @JavascriptInterface
+    fun captureScreen() {
+        if (!trusted()) return
+        service.runOnMain { service.launchAction(ActionActivity.KIND_SCREEN) }
+    }
+
+    @JavascriptInterface
+    fun startVoiceInput() {
+        if (!trusted()) return
+        service.runOnMain { service.launchAction(ActionActivity.KIND_VOICE) }
+    }
+
+    /** Shared text / voice result / photo waiting for the page, as JSON ("" if none). Taken once. */
+    @JavascriptInterface
+    fun takePending(): String = if (trusted()) service.takePendingJson() else ""
+
+    @JavascriptInterface
+    fun speak(text: String) {
+        if (!trusted()) return
+        val clean = text.take(MAX_SPEECH_CHARS)
+        service.runOnMain { service.speak(clean) }
+    }
+
+    @JavascriptInterface
+    fun stopSpeaking() {
+        service.runOnMain { service.stopSpeaking() }
+    }
+
     private companion object {
         const val MAX_ACCOUNT_CHARS = 200
+        const val MAX_SPEECH_CHARS = 20_000
     }
 }

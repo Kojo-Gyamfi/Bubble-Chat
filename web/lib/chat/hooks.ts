@@ -3,10 +3,10 @@
 import type { User } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 import { collection, doc, limit, limitToLast, onSnapshot, orderBy, query, type Timestamp } from "firebase/firestore";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { db } from "@/lib/firebase/client";
-import { ChatRequestError, newConversationId, newMessageId, streamChat } from "@/lib/chat/client";
-import type { ChatMessage, Conversation } from "@/lib/chat/schema";
+import { ChatRequestError, fetchMessagesLeft, newConversationId, newMessageId, streamChat } from "@/lib/chat/client";
+import type { ChatImage, ChatMessage, Conversation } from "@/lib/chat/schema";
 
 export type ListenerError = "permission-denied" | "unknown";
 
@@ -92,6 +92,7 @@ function useMessages(uid: string, conversationId: string | null) {
             id: d.id,
             role: d.get("role") as ChatMessage["role"],
             content: d.get("content") as string,
+            image: (d.get("image") as string | undefined) || undefined,
           })),
         }),
       (err) => {
@@ -144,9 +145,21 @@ export function useChat(user: User, conversationId: string | null) {
 
   const busy = pending.some((p) => p.conversationId === conversationId && p.pending === "streaming");
 
-  /** Sends a message; returns the conversation ID (new if none was active). */
+  // Stop button: aborts the reply being streamed.
+  const stopController = useRef<AbortController | null>(null);
+  const stop = useCallback(() => stopController.current?.abort(), []);
+
+  // Messages left today; shown when it gets low. null = unknown yet.
+  const [messagesLeft, setMessagesLeft] = useState<number | null>(null);
+  useEffect(() => {
+    fetchMessagesLeft(user)
+      .then(setMessagesLeft)
+      .catch(() => {}); // only a hint
+  }, [user]);
+
+  /** Sends a message (and optional photo); returns the conversation ID (new if none was active). */
   const send = useCallback(
-    async (text: string): Promise<string> => {
+    async (text: string, image?: ChatImage): Promise<string> => {
       const convId = conversationId ?? newConversationId(user.uid);
       const userMessageId = newMessageId(user.uid, convId);
       const assistantMessageId = newMessageId(user.uid, convId);
@@ -163,17 +176,35 @@ export function useChat(user: User, conversationId: string | null) {
             p.conversationId !== convId ||
             (!saved.has(p.id) && p.pending !== "error"),
         ),
-        { id: userMessageId, conversationId: convId, role: "user", content: text, pending: "streaming" },
+        { id: userMessageId, conversationId: convId, role: "user", content: text, image: image?.thumbnail, pending: "streaming" },
         { id: assistantMessageId, conversationId: convId, role: "assistant", content: "", pending: "streaming" },
       ]);
 
-      void streamChat(user, { conversationId: convId, userMessageId, assistantMessageId, message: text }, (chunk) =>
-        patch(assistantMessageId, (p) => ({ ...p, content: p.content + chunk })),
+      const controller = new AbortController();
+      stopController.current = controller;
+      let gotCount = false;
+      const onMessagesLeft = (left: number) => {
+        gotCount = true;
+        setMessagesLeft(left);
+      };
+
+      void streamChat(
+        user,
+        { conversationId: convId, userMessageId, assistantMessageId, message: text, image },
+        (chunk) => patch(assistantMessageId, (p) => ({ ...p, content: p.content + chunk })),
+        { signal: controller.signal, onMessagesLeft },
       )
-        .then(() => {
+        .then(({ stopped }) => {
           // Keep the streamed text visible until the snapshot copy replaces it.
           patch(userMessageId, (p) => ({ ...p, pending: undefined }));
-          patch(assistantMessageId, (p) => ({ ...p, pending: undefined }));
+          patch(assistantMessageId, (p) => ({
+            ...p,
+            pending: undefined,
+            // Same note the server saves, so nothing jumps when the saved copy arrives.
+            content: stopped ? `${p.content.trimEnd()}
+
+_(stopped)_`.trimStart() : p.content,
+          }));
         })
         .catch((err: unknown) => {
           patch(userMessageId, (p) => ({ ...p, pending: undefined }));
@@ -182,6 +213,11 @@ export function useChat(user: User, conversationId: string | null) {
             pending: "error",
             content: p.content || friendlyError(err),
           }));
+        })
+        .finally(() => {
+          if (stopController.current === controller) stopController.current = null;
+          // Stopped (or failed) before the response headers: ask for the count instead.
+          if (!gotCount) fetchMessagesLeft(user).then(setMessagesLeft, () => {});
         });
 
       return convId;
@@ -189,5 +225,5 @@ export function useChat(user: User, conversationId: string | null) {
     [conversationId, messages, user],
   );
 
-  return { messages: displayed, loading, busy, send };
+  return { messages: displayed, loading, busy, send, stop, messagesLeft };
 }

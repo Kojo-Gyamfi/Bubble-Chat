@@ -12,8 +12,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.Uri
@@ -22,6 +28,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.ContextThemeWrapper
@@ -41,10 +49,12 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import java.io.File
 import java.util.concurrent.Callable
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
+import org.json.JSONObject
 
 /**
  * Foreground service that owns the overlay windows: the draggable bubble and
@@ -91,6 +101,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         prefs = Prefs(this)
         themed = ContextThemeWrapper(this, R.style.Theme_BubbleChat)
@@ -133,6 +144,13 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
                 }
             }
             ACTION_START -> prefs.bubbleEnabled = true
+            // From AskActivity / ActionActivity when we weren't running yet.
+            ACTION_DELIVER -> receive(
+                text = intent?.getStringExtra(EXTRA_TEXT),
+                voice = intent?.getStringExtra(EXTRA_VOICE),
+                imagePath = intent?.getStringExtra(EXTRA_IMAGE),
+                error = intent?.getStringExtra(EXTRA_ERROR),
+            )
             // null intent = system restart after the process was killed (START_STICKY).
         }
         return START_STICKY
@@ -140,7 +158,11 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
 
     override fun onDestroy() {
         isRunning = false
+        if (instance === this) instance = null
         main.removeCallbacksAndMessages(null)
+        tts?.shutdown()
+        tts = null
+        endCapture()
         networkCallback?.let { callback ->
             try {
                 getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback)
@@ -180,8 +202,11 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
 
     // ---------------------------------------------------------------- foreground notification
 
-    /** Returns false if Android refused (e.g. a background restart it doesn't allow). */
-    private fun goForeground(): Boolean {
+    /**
+     * Returns false if Android refused (e.g. a background restart it doesn't allow).
+     * [capturing] adds the mediaProjection type while a screenshot is being taken.
+     */
+    private fun goForeground(capturing: Boolean = false): Boolean {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel), NotificationManager.IMPORTANCE_LOW).apply {
@@ -189,10 +214,15 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
                 setShowBadge(false)
             },
         )
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        val projection = if (capturing && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         } else {
             0
+        }
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or projection
+        } else {
+            projection
         }
         return try {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type)
@@ -582,6 +612,257 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         }
     }
 
+    // ---------------------------------------------------------------- handing things to the page
+
+    // Text, voice results and photos waiting for the page to take them (Android.takePending()).
+    private val pendingLock = Any()
+    private var pendingText: String? = null
+    private var pendingVoice: String? = null
+    private var pendingImagePath: String? = null
+    private var pendingError: String? = null
+
+    /** Something arrived for the chat (share sheet, "Ask Bubble", a picker): open the panel and tell the page. */
+    fun receive(text: String? = null, voice: String? = null, imagePath: String? = null, error: String? = null) {
+        prefs.bubbleEnabled = true
+        synchronized(pendingLock) {
+            text?.let { pendingText = listOfNotNull(pendingText, it).joinToString("\n") }
+            voice?.let { pendingVoice = listOfNotNull(pendingVoice, it).joinToString(" ") }
+            imagePath?.let { path ->
+                pendingImagePath?.let { File(it).delete() } // one photo per message
+                pendingImagePath = path
+            }
+            error?.let { pendingError = it }
+        }
+        bubble?.visibility = View.VISIBLE
+        expand()
+        // The page may still be loading; it also checks on mount.
+        main.postDelayed({ notifyPage("pending") }, 150)
+    }
+
+    /** JSON for the page (NativePending in web/lib/bridge.ts), or "" if nothing is waiting. Bridge thread. */
+    fun takePendingJson(): String {
+        val taken = synchronized(pendingLock) {
+            val all = listOf(pendingText, pendingVoice, pendingImagePath, pendingError)
+            pendingText = null
+            pendingVoice = null
+            pendingImagePath = null
+            pendingError = null
+            all
+        }
+        val (text, voice, imagePath, error) = taken
+        if (taken.all { it == null }) return ""
+        val image = imagePath?.let { ImageUtils.takeAsDataUrl(this, it) }
+        return JSONObject().apply {
+            text?.let { put("text", it) }
+            voice?.let { put("voice", it) }
+            image?.let { put("image", it) }
+            error?.let { put("error", it) }
+        }.toString()
+    }
+
+    /** Fires window "bubble-native" with {type} on the page. */
+    private fun notifyPage(type: String) {
+        if (!pageTrusted) return
+        webView?.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('bubble-native',{detail:{type:${JSONObject.quote(type)}}}))",
+            null,
+        )
+    }
+
+    /** Opens the camera / photo picker / voice typing / capture consent over other apps. */
+    fun launchAction(kind: String) {
+        try {
+            // Start it while our panel is still visible (that's what allows a start from the
+            // background), then move the panel out of the way: overlays sit above every activity.
+            startActivity(ActionActivity.intent(this, kind))
+            collapse()
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not open $kind", e)
+            receive(error = getString(R.string.action_failed))
+        }
+    }
+
+    // ---------------------------------------------------------------- read aloud
+
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var ttsQueued: String? = null
+
+    /** Bumped per speak()/stop so a finished older answer doesn't reset the page's button. */
+    @Volatile
+    private var ttsGeneration = 0
+
+    fun speak(text: String) {
+        if (tts == null) {
+            ttsQueued = text
+            tts = TextToSpeech(this) { status -> onTtsReady(status == TextToSpeech.SUCCESS) }
+            return
+        }
+        if (ttsReady) speakNow(text) else ttsQueued = text
+    }
+
+    private fun onTtsReady(ok: Boolean) {
+        ttsReady = ok
+        if (!ok) {
+            ttsQueued = null
+            notifyPage("tts-end")
+            return
+        }
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+            override fun onDone(utteranceId: String?) = finished(utteranceId)
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) = finished(utteranceId)
+            override fun onError(utteranceId: String?, errorCode: Int) = finished(utteranceId)
+        })
+        ttsQueued?.let { speakNow(it) }
+        ttsQueued = null
+    }
+
+    /** Engine thread. */
+    private fun finished(utteranceId: String?) {
+        if (utteranceId == "bubble-$ttsGeneration-last") main.post { notifyPage("tts-end") }
+    }
+
+    private fun speakNow(text: String) {
+        val engine = tts ?: return
+        engine.stop()
+        val generation = ++ttsGeneration
+        val chunks = text.chunkedAtSpaces(TextToSpeech.getMaxSpeechInputLength() - 100)
+        chunks.forEachIndexed { i, chunk ->
+            val id = if (i == chunks.lastIndex) "bubble-$generation-last" else "bubble-$generation-$i"
+            engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, id)
+        }
+    }
+
+    fun stopSpeaking() {
+        ttsQueued = null
+        ttsGeneration++
+        tts?.stop()
+    }
+
+    private fun String.chunkedAtSpaces(max: Int): List<String> {
+        val out = mutableListOf<String>()
+        var rest = this
+        while (rest.length > max) {
+            val cut = rest.lastIndexOf(' ', max).takeIf { it > max / 2 } ?: max
+            out += rest.substring(0, cut)
+            rest = rest.substring(cut).trimStart()
+        }
+        if (rest.isNotBlank()) out += rest
+        return out
+    }
+
+    // ---------------------------------------------------------------- "Ask about my screen"
+
+    private var projection: MediaProjection? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var imageReader: ImageReader? = null
+
+    /** One screenshot with the consent from ActionActivity; capturing stops right after. */
+    fun captureScreen(resultCode: Int, data: Intent) {
+        // Android 14+: the service must be a mediaProjection foreground service first.
+        if (!goForeground(capturing = true)) {
+            receive(error = getString(R.string.capture_failed))
+            return
+        }
+        val mp = try {
+            getSystemService(MediaProjectionManager::class.java).getMediaProjection(resultCode, data)
+        } catch (e: Exception) {
+            Log.w(TAG, "No media projection", e)
+            null
+        }
+        if (mp == null) {
+            goForeground()
+            receive(error = getString(R.string.capture_failed))
+            return
+        }
+        projection = mp
+        mp.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                main.post { endCapture() }
+            }
+        }, main)
+        // Keep our own windows out of the picture and let the consent dialog go away first.
+        bubble?.visibility = View.INVISIBLE
+        main.postDelayed({ startCapture(mp) }, CAPTURE_DELAY_MS)
+    }
+
+    private fun startCapture(mp: MediaProjection) {
+        if (projection !== mp) return
+        val bounds = screenBounds()
+        val width = bounds.width()
+        val height = bounds.height()
+        val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+        imageReader = reader
+        var done = false
+
+        fun fail() {
+            done = true
+            endCapture()
+            receive(error = getString(R.string.capture_failed))
+        }
+
+        reader.setOnImageAvailableListener({ r ->
+            if (done) return@setOnImageAvailableListener
+            val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+            done = true
+            val bitmap = try {
+                val plane = image.planes[0]
+                val rowPixels = plane.rowStride / plane.pixelStride
+                val padded = Bitmap.createBitmap(rowPixels, height, Bitmap.Config.ARGB_8888)
+                padded.copyPixelsFromBuffer(plane.buffer)
+                if (rowPixels == width) padded else Bitmap.createBitmap(padded, 0, 0, width, height).also { padded.recycle() }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not read the screenshot", e)
+                null
+            } finally {
+                image.close()
+            }
+            endCapture()
+            if (bitmap == null) {
+                receive(error = getString(R.string.capture_failed))
+                return@setOnImageAvailableListener
+            }
+            val app = applicationContext
+            Thread {
+                val path = ImageUtils.save(app, bitmap)
+                bitmap.recycle()
+                main.post { receive(imagePath = path) }
+            }.start()
+        }, main)
+
+        try {
+            virtualDisplay = mp.createVirtualDisplay(
+                "bubble-capture", width, height, resources.displayMetrics.densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.surface, null, main,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not start the capture", e)
+            fail()
+            return
+        }
+        main.postDelayed({ if (!done) fail() }, CAPTURE_TIMEOUT_MS)
+    }
+
+    /** Stops capturing (safe to call twice) and goes back to a plain foreground service. */
+    private fun endCapture() {
+        val mp = projection ?: return
+        projection = null
+        virtualDisplay?.release()
+        virtualDisplay = null
+        imageReader?.close()
+        imageReader = null
+        try {
+            mp.stop()
+        } catch (e: Exception) {
+            // Already stopped.
+        }
+        bubble?.visibility = View.VISIBLE
+        if (isRunning) goForeground()
+    }
+
     // ---------------------------------------------------------------- threading helpers for JsBridge
 
     fun runOnMain(block: () -> Unit) {
@@ -606,10 +887,20 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         private const val NOTIFICATION_ID = 1
         private const val BRIDGE_NAME = "Android"
         private const val WEBVIEW_RETRY_MS = 15_000L
+        private const val CAPTURE_DELAY_MS = 450L
+        private const val CAPTURE_TIMEOUT_MS = 3_000L
+        private const val EXTRA_TEXT = "text"
+        private const val EXTRA_VOICE = "voice"
+        private const val EXTRA_IMAGE = "image"
+        private const val EXTRA_ERROR = "error"
 
         const val ACTION_START = "com.bubblechat.app.action.START"
         const val ACTION_STOP = "com.bubblechat.app.action.STOP"
         const val ACTION_LINK = "com.bubblechat.app.action.LINK"
+        const val ACTION_DELIVER = "com.bubblechat.app.action.DELIVER"
+
+        /** The running service (same process), so helpers can hand results over directly. Main thread only. */
+        private var instance: OverlayService? = null
 
         /** Whether the service is alive in this process (for the main screen's toggle). */
         @Volatile
@@ -620,6 +911,41 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
 
         /** Start (or wake) the service after a new link token was saved. */
         fun link(context: Context) = startWith(context, ACTION_LINK)
+
+        /**
+         * Hands text / a voice result / a saved photo / an error to the chat and opens it.
+         * All null = just reopen the panel (e.g. the picker was cancelled).
+         */
+        fun deliver(
+            context: Context,
+            text: String? = null,
+            voice: String? = null,
+            imagePath: String? = null,
+            error: String? = null,
+        ) {
+            instance?.let {
+                it.receive(text, voice, imagePath, error)
+                return
+            }
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, OverlayService::class.java).setAction(ACTION_DELIVER)
+                    .putExtra(EXTRA_TEXT, text)
+                    .putExtra(EXTRA_VOICE, voice)
+                    .putExtra(EXTRA_IMAGE, imagePath)
+                    .putExtra(EXTRA_ERROR, error),
+            )
+        }
+
+        /** Screen-capture consent arrived (from ActionActivity). */
+        fun captureScreen(context: Context, resultCode: Int, data: Intent) {
+            val service = instance
+            if (service == null) {
+                deliver(context, error = context.getString(R.string.capture_failed))
+                return
+            }
+            service.captureScreen(resultCode, data)
+        }
 
         fun stop(context: Context) {
             context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_STOP))

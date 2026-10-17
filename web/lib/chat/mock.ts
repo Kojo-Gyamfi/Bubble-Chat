@@ -2,10 +2,16 @@ import "server-only";
 
 // LLM_PROVIDER=mock: streams a canned markdown reply word by word, covering
 // the common formatting so the UI can be checked without an API key.
-export async function* mockReply(message: string): AsyncIterable<string> {
+// MOCK_TOKEN_DELAY_MS slows it down (e.g. to test the Stop button).
+export async function* mockReply(
+  message: string,
+  { image = false, signal }: { image?: boolean; signal?: AbortSignal } = {},
+): AsyncIterable<string> {
   const quoted = message.length > 200 ? `${message.slice(0, 200)}…` : message;
+  const delay = Number(process.env.MOCK_TOKEN_DELAY_MS) || 20;
   const reply = [
     "This is a **mocked** reply (`LLM_PROVIDER=mock`). You asked:",
+    ...(image ? ["", "📷 I can see the photo you attached (mock)."] : []),
     "",
     `> ${quoted.replace(/\n/g, "\n> ")}`,
     "",
@@ -27,7 +33,8 @@ export async function* mockReply(message: string): AsyncIterable<string> {
   ].join("\n");
 
   for (const token of reply.split(/(?<=\s)/)) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    signal?.throwIfAborted();
     yield token;
   }
 }

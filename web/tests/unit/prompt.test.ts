@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LlmMessage } from "@/lib/llm";
-import { buildMessages, CREATOR_ANSWER, MAX_CONTEXT_MESSAGES, systemPrompt } from "@/lib/prompt";
+import { buildMessages, CREATOR_ANSWER, MAX_CONTEXT_MESSAGES, PHOTO_ONLY_PROMPT, systemPrompt } from "@/lib/prompt";
 
 const turn = (i: number): LlmMessage[] => [
   { role: "user", content: `q${i}` },
@@ -48,5 +48,19 @@ describe("systemPrompt", () => {
     expect(prompt).toContain("Nana Kojo");
     expect(prompt).toContain(CREATOR_ANSWER);
     expect(CREATOR_ANSWER).toMatch(/built by \*\*Kwadwo Gyamfi\*\*, popularly known as \*\*Nana Kojo\*\*, a Software Developer/);
+  });
+});
+
+describe("buildMessages with a photo", () => {
+  const image = { data: "aGVsbG8=", mediaType: "image/jpeg" };
+
+  it("attaches the photo to the new message only", () => {
+    const messages = buildMessages(turn(1), "what is this?", image);
+    expect(messages.at(-1)).toEqual({ role: "user", content: "what is this?", image });
+    expect(messages.slice(0, -1).every((m) => !m.image)).toBe(true);
+  });
+
+  it("asks the model to describe a photo sent without text", () => {
+    expect(buildMessages([], "", image).at(-1)).toEqual({ role: "user", content: PHOTO_ONLY_PROMPT, image });
   });
 });

@@ -2,13 +2,15 @@ import "server-only";
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createGroq } from "@ai-sdk/groq";
-import { APICallError, type LanguageModel, streamText } from "ai";
+import { APICallError, type LanguageModel, type ModelMessage, streamText } from "ai";
 import { HttpError } from "@/lib/auth";
 import { mockReply } from "@/lib/chat/mock";
 
 export interface LlmMessage {
   role: "user" | "assistant";
   content: string;
+  /** A photo sent with this (user) message; only the newest message carries one. */
+  image?: { data: string; mediaType: string };
 }
 
 export interface LlmUsage {
@@ -20,10 +22,14 @@ export interface StreamOptions {
   system: string;
   maxTokens: number;
   onUsage?: (usage: LlmUsage) => void;
+  /** The user pressed Stop: end the reply now. */
+  abortSignal?: AbortSignal;
 }
 
 export interface LlmProvider {
   name: string;
+  /** Can read images (Gemini). Photo messages skip providers that can't. */
+  supportsImages: boolean;
   stream(messages: LlmMessage[], opts: StreamOptions): AsyncIterable<string>;
 }
 
@@ -35,14 +41,17 @@ export function aiSdkProvider(
   name: string,
   model: LanguageModel,
   extra: { reasoning?: Parameters<typeof streamText>[0]["reasoning"] } = {},
+  supportsImages = false,
 ): LlmProvider {
   return {
     name,
-    async *stream(messages, { system, maxTokens, onUsage }) {
+    supportsImages,
+    async *stream(messages, { system, maxTokens, onUsage, abortSignal }) {
       const result = streamText({
         model,
         instructions: system,
-        messages,
+        messages: messages.map(toModelMessage),
+        abortSignal,
         maxOutputTokens: maxTokens,
         // Fall back to the next provider instead of retrying a rate-limited one.
         maxRetries: 0,
@@ -69,9 +78,26 @@ export function aiSdkProvider(
   };
 }
 
+/** The photo goes before the text, as Gemini recommends. */
+function toModelMessage(m: LlmMessage): ModelMessage {
+  if (m.role === "assistant") return { role: "assistant", content: m.content };
+  if (!m.image) return { role: "user", content: m.content };
+  return {
+    role: "user",
+    content: [
+      { type: "image", image: m.image.data, mediaType: m.image.mediaType },
+      { type: "text", text: m.content },
+    ],
+  };
+}
+
 const mockProvider: LlmProvider = {
   name: "mock",
-  stream: (messages) => mockReply(messages.at(-1)?.content ?? ""),
+  supportsImages: true,
+  stream: (messages, { abortSignal }) => {
+    const last = messages.at(-1);
+    return mockReply(last?.content ?? "", { image: !!last?.image, signal: abortSignal });
+  },
 };
 
 function geminiProvider(): LlmProvider | null {
@@ -79,9 +105,12 @@ function geminiProvider(): LlmProvider | null {
   if (!apiKey) return null;
   const google = createGoogleGenerativeAI({ apiKey });
   // Minimal thinking: thinking tokens count against maxOutputTokens.
-  return aiSdkProvider("gemini", google(process.env.LLM_MODEL || DEFAULT_GEMINI_MODEL), {
-    reasoning: "minimal",
-  });
+  return aiSdkProvider(
+    "gemini",
+    google(process.env.LLM_MODEL || DEFAULT_GEMINI_MODEL),
+    { reasoning: "minimal" },
+    true, // Gemini Flash models read images
+  );
 }
 
 function groqProvider(): LlmProvider | null {
@@ -135,7 +164,8 @@ export async function* streamWithFallback(
       }
       return;
     } catch (err) {
-      if (started || i === chain.length - 1) throw err;
+      // Stopped by the user, already mid-reply, or out of providers: don't try another.
+      if (opts.abortSignal?.aborted || started || i === chain.length - 1) throw err;
       console.warn(`LLM provider "${provider.name}" failed (${describeError(err)}); falling back to "${chain[i + 1].name}"`);
     }
   }

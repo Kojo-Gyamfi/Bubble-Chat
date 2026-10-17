@@ -5,6 +5,7 @@ import type { AuthedUser } from "@/lib/auth";
 import { adminDb } from "@/lib/firebase/admin";
 import { titleFrom } from "@/lib/chat/schema";
 import type { LlmMessage, LlmUsage } from "@/lib/llm";
+import { PAST_PHOTO_NOTE } from "@/lib/prompt";
 import { usageDocIds } from "@/lib/usage";
 
 // All message writes happen here, server-side. Clients only read.
@@ -18,6 +19,8 @@ export async function appendUserMessage(
   conversationId: string,
   messageId: string,
   content: string,
+  /** Thumbnail data URL of an attached photo (the full image isn't stored). */
+  image?: string,
 ): Promise<void> {
   const db = adminDb();
   const userRef = db.doc(`users/${user.uid}`);
@@ -45,7 +48,12 @@ export async function appendUserMessage(
       tx.set(convRef, { title: titleFrom(content), createdAt: now, updatedAt: now, messageCount: 1 });
     }
 
-    tx.set(convRef.collection("messages").doc(messageId), { role: "user", content, createdAt: now });
+    tx.set(convRef.collection("messages").doc(messageId), {
+      role: "user",
+      content,
+      createdAt: now,
+      ...(image ? { image } : {}),
+    });
   });
 }
 
@@ -64,10 +72,13 @@ export async function loadHistory(
   return snap.docs
     .filter((d) => d.id !== excludeId)
     .reverse()
-    .map((d) => ({
-      role: d.get("role") as LlmMessage["role"],
-      content: d.get("content") as string,
-    }));
+    .map((d) => {
+      const content = d.get("content") as string;
+      return {
+        role: d.get("role") as LlmMessage["role"],
+        content: d.get("image") ? `${PAST_PHOTO_NOTE}\n${content}`.trim() : content,
+      };
+    });
 }
 
 /** Saves the reply and its token usage in one batch. */

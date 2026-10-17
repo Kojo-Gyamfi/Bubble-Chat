@@ -20,6 +20,8 @@ export function systemPrompt(now = new Date()): string {
     "Be concise: answer in a few short paragraphs or a list unless asked for more detail. The chat window is often small.",
     "Use Markdown for lists, code and emphasis. Don't use tables unless asked.",
     "If you're not sure about something, say so rather than guessing.",
+    "Users can attach photos and screenshots. Answer about what's in them; if text in an image is unreadable, say so.",
+    "Your answers may be read aloud, so prefer plain sentences over heavy formatting when it doesn't hurt clarity.",
     "",
     "About you:",
     `- You were built by ${CREATOR.name}, popularly known as ${CREATOR.knownAs}, a ${CREATOR.role}.`,
@@ -39,9 +41,18 @@ export const MAX_CONTEXT_MESSAGES = 20;
 
 export const MAX_OUTPUT_TOKENS = 1024;
 
-/** Keeps the last MAX_CONTEXT_MESSAGES, starting on a user turn. */
-export function buildMessages(history: LlmMessage[], newMessage: string): LlmMessage[] {
+/** Model-side text for a photo sent without a question. */
+export const PHOTO_ONLY_PROMPT =
+  "(The user sent this photo without a question. Briefly say what you see and ask what they'd like to know.)";
+
+/** Stands in for a photo in earlier turns: only a thumbnail is stored, so the model can't see it again. */
+export const PAST_PHOTO_NOTE =
+  "[The user attached a photo here. You can't see it any more; rely on what you said about it.]";
+
+/** Keeps the last MAX_CONTEXT_MESSAGES, starting on a user turn. The photo, if any, rides on the new message. */
+export function buildMessages(history: LlmMessage[], newMessage: string, image?: LlmMessage["image"]): LlmMessage[] {
   const recent = history.filter((m) => m.content.trim()).slice(-(MAX_CONTEXT_MESSAGES - 1));
   while (recent.length && recent[0].role !== "user") recent.shift();
-  return [...recent, { role: "user", content: newMessage }];
+  const content = newMessage || (image ? PHOTO_ONLY_PROMPT : "");
+  return [...recent, image ? { role: "user", content, image } : { role: "user", content }];
 }
