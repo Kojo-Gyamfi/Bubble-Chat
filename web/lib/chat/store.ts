@@ -7,7 +7,7 @@ import { titleFrom } from "@/lib/chat/schema";
 import type { LlmMessage, LlmUsage } from "@/lib/llm";
 import { PAST_PHOTO_NOTE } from "@/lib/prompt";
 import { documentAsText, type ReadDocument } from "@/lib/chat/documents";
-import { usageDocIds } from "@/lib/usage";
+import { dayKey, usageDocIds } from "@/lib/usage";
 
 // All message writes happen here, server-side. Clients only read.
 
@@ -130,6 +130,8 @@ export async function appendAssistantMessage(
   messageId: string,
   content: string,
   usage?: { day: string; tokens: LlmUsage },
+  /** Which model answered, e.g. "gemini:gemini-3.6-flash" (for the owner; not shown in the chat). */
+  model?: string,
 ): Promise<void> {
   const db = adminDb();
   const convRef = conversationRef(uid, conversationId);
@@ -140,6 +142,7 @@ export async function appendAssistantMessage(
     content,
     createdAt: now,
     ...(usage ? { tokens: usage.tokens.outputTokens } : {}),
+    ...(model ? { model } : {}),
   });
   batch.update(convRef, { updatedAt: now, messageCount: FieldValue.increment(1) });
   if (usage) {
@@ -150,6 +153,11 @@ export async function appendAssistantMessage(
     };
     batch.set(db.doc(ids.user), tokens, { merge: true });
     batch.set(db.doc(ids.global), tokens, { merge: true });
+  }
+  if (model) {
+    // usage/global_{day}.models: replies per model today ("." and "/" aren't nice in keys).
+    const key = model.replace(/[./]/g, "_");
+    batch.set(db.doc(usageDocIds(uid, usage?.day ?? dayKey()).global), { models: { [key]: FieldValue.increment(1) } }, { merge: true });
   }
   await batch.commit();
 }

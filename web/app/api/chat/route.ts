@@ -59,6 +59,7 @@ export async function POST(req: Request) {
     req.signal.addEventListener("abort", () => stop.abort(), { once: true });
 
     let usage: LlmUsage | undefined;
+    let model: string | undefined;
     const reply = streamWithFallback(
       chain,
       buildMessages(
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
         system: systemPrompt(),
         maxTokens: MAX_OUTPUT_TOKENS,
         onUsage: (u) => (usage = u),
+        onModel: (name) => (model = name),
         abortSignal: stop.signal,
       },
     );
@@ -79,7 +81,7 @@ export async function POST(req: Request) {
       reply,
       async (text) => {
         await userSaved;
-        await appendAssistantMessage(user.uid, conversationId, assistantMessageId, text, usage && { day, tokens: usage });
+        await appendAssistantMessage(user.uid, conversationId, assistantMessageId, text, usage && { day, tokens: usage }, model);
       },
       { stop, headers: { "X-Messages-Left": String(limit.remaining) } },
     );

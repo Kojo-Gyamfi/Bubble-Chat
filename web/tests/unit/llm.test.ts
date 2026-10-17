@@ -1,7 +1,16 @@
 import { APICallError, simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { describe, expect, it, vi } from "vitest";
-import { aiSdkProvider, type LlmProvider, type LlmUsage, streamWithFallback } from "@/lib/llm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  aiSdkProvider,
+  DEFAULT_CHAIN,
+  type LlmProvider,
+  type LlmUsage,
+  parseChain,
+  rateLimitCooldownMs,
+  resetCooldowns,
+  streamWithFallback,
+} from "@/lib/llm";
 
 const opts = { system: "sys", maxTokens: 100 };
 const messages = [{ role: "user" as const, content: "hi" }];
@@ -125,5 +134,125 @@ describe("aiSdkProvider", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const chain = [aiSdkProvider("gemini", rateLimitedModel()), aiSdkProvider("groq", streamingModel("from backup"))];
     expect(await collect(streamWithFallback(chain, messages, opts))).toBe("from backup");
+  });
+});
+
+// The real body Gemini returned when gemini-2.5-flash's free daily quota ran out (trimmed).
+const GEMINI_DAILY_429 = JSON.stringify({
+  error: {
+    code: 429,
+    message:
+      "You exceeded your current quota...\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 14h1m21.172325537s.",
+    status: "RESOURCE_EXHAUSTED",
+    details: [
+      { "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] },
+      { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "50481s" },
+    ],
+  },
+});
+
+function apiError(statusCode: number, responseBody?: string, message = "rate limited", headers?: Record<string, string>) {
+  return new APICallError({
+    message,
+    url: "https://example.test",
+    requestBodyValues: {},
+    statusCode,
+    responseBody,
+    responseHeaders: headers,
+    isRetryable: statusCode === 429,
+  });
+}
+
+describe("parseChain", () => {
+  it("reads provider:model entries with an optional @reasoning", () => {
+    expect(parseChain(" gemini:gemini-3.8-flash@low , groq:openai/gpt-oss-120b ")).toEqual([
+      { provider: "gemini", model: "gemini-3.8-flash", reasoning: "low" },
+      { provider: "groq", model: "openai/gpt-oss-120b", reasoning: undefined },
+    ]);
+  });
+
+  it("skips unknown providers and bad reasoning levels", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(parseChain("openai:gpt-9, gemini:x@turbo, groq:ok")).toEqual([{ provider: "groq", model: "ok", reasoning: undefined }]);
+  });
+
+  it("the default chain is valid and starts with Gemini", () => {
+    const chain = parseChain(DEFAULT_CHAIN);
+    expect(chain.length).toBeGreaterThanOrEqual(6);
+    expect(chain[0].provider).toBe("gemini");
+    expect(chain.at(-1)?.provider).toBe("groq");
+  });
+});
+
+describe("rateLimitCooldownMs", () => {
+  it("uses Gemini's RetryInfo for a daily quota (until the reset)", () => {
+    expect(rateLimitCooldownMs(apiError(429, GEMINI_DAILY_429))).toBe(50_481_000);
+  });
+
+  it("reads Groq's 'try again in' hint", () => {
+    const body = JSON.stringify({ error: { message: "Rate limit reached for model `openai/gpt-oss-120b` on tokens per day (TPD): Limit 200000. Please try again in 7m12.48s. Need more tokens?" } });
+    expect(rateLimitCooldownMs(apiError(429, body))).toBe(432_480);
+  });
+
+  it("falls back to Retry-After, then to an hour (daily) or a minute", () => {
+    expect(rateLimitCooldownMs(apiError(429, "{}", "slow down", { "retry-after": "30" }))).toBe(30_000);
+    expect(rateLimitCooldownMs(apiError(429, '{"quotaId":"GenerateRequestsPerDayPerProjectPerModel"}'))).toBe(3_600_000);
+    expect(rateLimitCooldownMs(apiError(429, "{}"))).toBe(60_000);
+  });
+
+  it("ignores other errors", () => {
+    expect(rateLimitCooldownMs(apiError(500, "{}"))).toBeNull();
+    expect(rateLimitCooldownMs(new Error("network"))).toBeNull();
+  });
+});
+
+describe("streamWithFallback cooldowns", () => {
+  beforeEach(() => resetCooldowns());
+
+  function limited(name: string, calls: string[]): LlmProvider {
+    return {
+      name,
+      supportsImages: false,
+      async *stream() {
+        calls.push(name);
+        throw apiError(429, GEMINI_DAILY_429);
+      },
+    };
+  }
+  function working(name: string, calls: string[]): LlmProvider {
+    return {
+      name,
+      supportsImages: false,
+      async *stream() {
+        calls.push(name);
+        yield `from ${name}`;
+      },
+    };
+  }
+
+  it("skips an exhausted model on later requests until it resets", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls: string[] = [];
+    const chain = [limited("gemini:a", calls), working("gemini:b", calls)];
+    expect(await collect(streamWithFallback(chain, messages, opts))).toBe("from gemini:b");
+    expect(await collect(streamWithFallback(chain, messages, opts))).toBe("from gemini:b");
+    expect(calls).toEqual(["gemini:a", "gemini:b", "gemini:b"]); // "a" not asked the second time
+  });
+
+  it("reports which model answered", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls: string[] = [];
+    let model: string | undefined;
+    await collect(streamWithFallback([limited("gemini:a", calls), working("groq:b", calls)], messages, { ...opts, onModel: (m) => (model = m) }));
+    expect(model).toBe("groq:b");
+  });
+
+  it("still tries everything when every model is cooling down", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls: string[] = [];
+    const chain = [limited("gemini:a", calls), limited("gemini:b", calls)];
+    await expect(collect(streamWithFallback(chain, messages, opts))).rejects.toThrow();
+    await expect(collect(streamWithFallback(chain, messages, opts))).rejects.toThrow();
+    expect(calls).toEqual(["gemini:a", "gemini:b", "gemini:a", "gemini:b"]);
   });
 });

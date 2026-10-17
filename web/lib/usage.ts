@@ -15,8 +15,10 @@ function intEnv(name: string, fallback: number): number {
 
 export function limitsFromEnv(): Limits {
   return {
-    perUser: intEnv("DAILY_REQUEST_LIMIT", 25),
-    global: intEnv("GLOBAL_DAILY_REQUEST_LIMIT", 200),
+    // The Gemini model chain gives ~1,060 free requests/day (3 Flash models × 20 +
+    // 2 Flash-Lite × 500); stay just under it so Gemini answers nearly everything.
+    perUser: intEnv("DAILY_REQUEST_LIMIT", 100),
+    global: intEnv("GLOBAL_DAILY_REQUEST_LIMIT", 1000),
   };
 }
 

@@ -43,6 +43,6 @@ describe("limitsFromEnv", () => {
   it("falls back to defaults on missing or invalid values", () => {
     vi.stubEnv("DAILY_REQUEST_LIMIT", "");
     vi.stubEnv("GLOBAL_DAILY_REQUEST_LIMIT", "abc");
-    expect(limitsFromEnv()).toEqual({ perUser: 25, global: 200 });
+    expect(limitsFromEnv()).toEqual({ perUser: 100, global: 1000 });
   });
 });

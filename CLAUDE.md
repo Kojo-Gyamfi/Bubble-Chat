@@ -167,8 +167,8 @@ export interface LlmProvider {
 }
 ```
 
-- Default `gemini`: Google AI Studio API key; model ID from `LLM_MODEL` (a current free-tier Flash model; Pro models are no longer free). Never hard-code the model name.
-- Fallback `groq`: Groq API key, model from `GROQ_MODEL` (a current Llama model). `LLM_PROVIDER=groq` forces it; otherwise the adapter **falls back to Groq automatically** when the primary returns 429/5xx before the first chunk.
+- **Model chain** (`lib/llm.ts`): an ordered list of `provider:model[@reasoning]`, best first, from `LLM_CHAIN` or `DEFAULT_CHAIN` (Gemini 3.8 Flash, 3.6 Flash, 2.5 Flash, 3.5 Flash-Lite, 3.1 Flash-Lite, then Groq gpt-oss-120b, qwen3.8-27b, gpt-oss-20b). Free limits are **per model** (e.g. Gemini Flash models get only ~20 requests/day on the free tier), so the chain adds them up. A model failing before its first chunk falls through to the next. On a 429 it's also skipped on later requests until it resets, using the provider's own hint (Gemini `RetryInfo.retryDelay`, Groq "try again in…", `Retry-After`). `LLM_PROVIDER=groq` keeps only the Groq models; `mock` uses canned replies. `LLM_MODEL`/`GROQ_MODEL` are no longer used. Don't create extra free accounts/keys to multiply quota (against the providers' terms); add models or other providers instead.
+- The model that answered is saved on the assistant message (`model`), and counted per day in `usage/global_{day}.models`.
 - Free-tier Gemini prompts may be used by Google for training (except EU/UK/CH). Tell your users.
 - Use the Vercel AI SDK (`ai`, `@ai-sdk/google`, `@ai-sdk/groq`) rather than hand-rolling fetch; it handles streaming and provider differences. If it adds friction, fall back to the provider's own SDK.
 
@@ -178,8 +178,8 @@ Set `maxDuration = 60` on the route. Vercel Hobby with Fluid Compute allows up t
 
 | Limit | Value | Where enforced |
 | --- | --- | --- |
-| Requests per user per day | 25 (`DAILY_REQUEST_LIMIT`) | `usage/{uid}_{day}` transaction in `/api/chat` |
-| Requests per day, all users | 200 (`GLOBAL_DAILY_REQUEST_LIMIT`), set below the Gemini free-tier RPD shown in AI Studio | `usage/global_{day}` in the same transaction |
+| Requests per user per day | 100 (`DAILY_REQUEST_LIMIT`) | `usage/{uid}_{day}` transaction in `/api/chat` |
+| Requests per day, all users | 1,000 (`GLOBAL_DAILY_REQUEST_LIMIT`), just below the model chain's free requests/day (Oct 2026 per AI Studio: 3.8/3.6/2.5 Flash 20 each, 3.5/3.1 Flash-Lite 500 each ≈ 1,060) | `usage/global_{day}` in the same transaction |
 | Max messages sent to the model | last 20 | prompt builder |
 | Max input chars per message | 4,000 | zod schema |
 | Max output tokens | 1,024 | LLM call |
@@ -369,8 +369,8 @@ LLM_MODEL=                            # current free-tier Gemini Flash model ID
 GROQ_MODEL=                           # current Groq Llama model ID
 GOOGLE_GENERATIVE_AI_API_KEY=
 GROQ_API_KEY=
-DAILY_REQUEST_LIMIT=25                # per user
-GLOBAL_DAILY_REQUEST_LIMIT=200        # all users; keep below Gemini free-tier RPD
+DAILY_REQUEST_LIMIT=100               # per user
+GLOBAL_DAILY_REQUEST_LIMIT=1000       # all users; keep below the model chain's free requests/day (~1,060 on Gemini)
 NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 ```
 

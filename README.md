@@ -39,8 +39,9 @@ See [CLAUDE.md](CLAUDE.md) for the full plan.
 ## AI provider keys (free)
 
 - **Gemini** (default): create a key at [Google AI Studio](https://aistudio.google.com/apikey) →
-  `GOOGLE_GENERATIVE_AI_API_KEY`. Check your real free-tier requests/day there and set
-  `GLOBAL_DAILY_REQUEST_LIMIT` below it.
+  `GOOGLE_GENERATIVE_AI_API_KEY`. Free limits are per model, and the default model chain adds
+  them up (≈1,060 requests/day in Oct 2026). Check each model's requests/day in AI Studio →
+  Rate limits and keep `GLOBAL_DAILY_REQUEST_LIMIT` (default 1,000) below the total.
 - **Groq** (automatic fallback when Gemini is rate-limited or down): key from
   [console.groq.com](https://console.groq.com/keys) → `GROQ_API_KEY`.
 - No keys yet? `LLM_PROVIDER=mock` streams canned replies.
