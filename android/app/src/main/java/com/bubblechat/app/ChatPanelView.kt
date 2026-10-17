@@ -67,6 +67,10 @@ class ChatPanelView(context: Context, private val callbacks: Callbacks) : FrameL
         outlineProvider = ViewOutlineProvider.BACKGROUND
         clipToOutline = true
 
+        // Anti-tapjacking: if another app's overlay sits on top of the chat, drop the touch
+        // rather than let it drive the composer or buttons through the overlay.
+        filterTouchesWhenObscured = true
+
         val gripColor = ContextCompat.getColor(context, R.color.text_secondary)
 
         val moveHandle = DragHandle(

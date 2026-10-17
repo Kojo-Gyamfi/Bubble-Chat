@@ -36,7 +36,7 @@
     <string name="battery_desc">Some phones stop background apps to save battery, which closes the bubble.</string>
     <string name="battery_action">Allow background use</string>
     <string name="battery_ok">Battery optimization is off for Bubble Chat.</string>
-    <string name="oem_help">On Xiaomi, Oppo, Vivo, Huawei, Realme or OnePlus, also open Settings → Apps → Bubble Chat and turn on Autostart and \"Display pop-up windows while running in the background\" (names vary by phone).</string>
+    <string name="oem_help">Some phones (Xiaomi/Redmi/POCO, Oppo, Vivo, Realme, OnePlus, Huawei) need two more switches or the bubble closes in the background. Open app settings below, then:\n\n•  Turn on Autostart (or \"Auto launch\").\n•  Turn on \"Display pop-up windows while running in the background\" (under Other permissions).\n•  Set battery usage to Unrestricted / No restrictions.\n\nExact names vary by phone and Android version.</string>
     <string name="open_app_settings">Open app settings</string>
 
     <string name="notif_channel">Bubble</string>
