@@ -2,27 +2,35 @@ package com.bubblechat.app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.webkit.WebView
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import kotlin.math.abs
 
 /**
- * The expanded chat panel: rounded card hosting the service's shared WebView.
- * Tapping outside or pressing Back collapses it. Reports where the keyboard
- * starts so the service can shrink the panel above it (adjustResize alone is
- * unreliable for overlay windows).
+ * The expanded chat panel: rounded card hosting the service's shared WebView,
+ * with a grab bar on top (drag to move, double-tap to reset) and a corner grip
+ * at the bottom right (drag to resize). Tapping outside or pressing Back
+ * collapses it. Reports where the keyboard starts so the service can keep the
+ * panel above it (adjustResize alone is unreliable for overlay windows).
  */
 @SuppressLint("ViewConstructor")
 class ChatPanelView(context: Context, private val callbacks: Callbacks) : FrameLayout(context) {
@@ -32,6 +40,19 @@ class ChatPanelView(context: Context, private val callbacks: Callbacks) : FrameL
         fun onPanelRetry()
         /** keyboardTop is in screen coordinates; null when the keyboard is hidden. */
         fun onKeyboardChanged(keyboardTop: Int?)
+
+        /** Grab bar dragged by (dx, dy) px since the drag started. */
+        fun onPanelMoveStart()
+        fun onPanelMove(dx: Int, dy: Int)
+        fun onPanelMoveEnd()
+
+        /** Corner grip dragged by (dx, dy) px since the drag started. */
+        fun onPanelResizeStart()
+        fun onPanelResize(dx: Int, dy: Int)
+        fun onPanelResizeEnd()
+
+        /** Double-tap on the grab bar: back to the default size and position. */
+        fun onPanelResetLayout()
     }
 
     private val webContainer = FrameLayout(context)
@@ -45,7 +66,42 @@ class ChatPanelView(context: Context, private val callbacks: Callbacks) : FrameL
         }
         outlineProvider = ViewOutlineProvider.BACKGROUND
         clipToOutline = true
-        addView(webContainer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        val gripColor = ContextCompat.getColor(context, R.color.text_secondary)
+
+        val moveHandle = DragHandle(
+            context,
+            onStart = callbacks::onPanelMoveStart,
+            onDrag = callbacks::onPanelMove,
+            onEnd = callbacks::onPanelMoveEnd,
+            onDoubleTap = callbacks::onPanelResetLayout,
+        ).apply {
+            contentDescription = context.getString(R.string.panel_move)
+            addView(View(context).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = context.dp(2).toFloat()
+                    setColor(gripColor)
+                }
+                alpha = 0.6f
+            }, LayoutParams(context.dp(40), context.dp(4), Gravity.CENTER))
+        }
+
+        val resizeHandle = DragHandle(
+            context,
+            onStart = callbacks::onPanelResizeStart,
+            onDrag = callbacks::onPanelResize,
+            onEnd = callbacks::onPanelResizeEnd,
+        ).apply {
+            contentDescription = context.getString(R.string.panel_resize)
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_resize_corner)
+                imageTintList = ColorStateList.valueOf(gripColor)
+                alpha = 0.8f
+            }, LayoutParams(context.dp(16), context.dp(16), Gravity.BOTTOM or Gravity.END).apply {
+                marginEnd = context.dp(6)
+                bottomMargin = context.dp(2)
+            })
+        }
 
         errorView = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -65,7 +121,23 @@ class ChatPanelView(context: Context, private val callbacks: Callbacks) : FrameL
                 topMargin = context.dp(12)
             })
         }
-        addView(errorView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        val content = FrameLayout(context).apply {
+            addView(webContainer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(errorView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+
+        // Grab bar · chat · thin strip with the resize grip at its right end (below the
+        // web composer, so it never covers its buttons).
+        val bottomStrip = FrameLayout(context).apply {
+            addView(resizeHandle, LayoutParams(context.dp(48), LayoutParams.MATCH_PARENT, Gravity.END))
+        }
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(moveHandle, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, context.dp(GRAB_BAR_DP)))
+            addView(content, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(bottomStrip, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, context.dp(RESIZE_STRIP_DP)))
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
         ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
@@ -112,5 +184,79 @@ class ChatPanelView(context: Context, private val callbacks: Callbacks) : FrameL
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * Reports drags in raw screen pixels since ACTION_DOWN (the window moves under
+     * the finger, so view-relative coordinates would jitter), like BubbleView.
+     */
+    @SuppressLint("ViewConstructor")
+    private class DragHandle(
+        context: Context,
+        private val onStart: () -> Unit,
+        private val onDrag: (Int, Int) -> Unit,
+        private val onEnd: () -> Unit,
+        onDoubleTap: (() -> Unit)? = null,
+    ) : FrameLayout(context) {
+
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        private var downX = 0f
+        private var downY = 0f
+        private var dragging = false
+        private val exclusionRect = Rect()
+        private val exclusionRects = listOf(exclusionRect)
+
+        private val doubleTaps = onDoubleTap?.let { action ->
+            GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    action()
+                    return true
+                }
+            })
+        }
+
+        init {
+            isClickable = true
+        }
+
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            super.onLayout(changed, left, top, right, bottom)
+            // The panel can sit against a screen edge; keep edge-swipe Back from stealing the drag.
+            exclusionRect.set(0, 0, width, height)
+            ViewCompat.setSystemGestureExclusionRects(this, exclusionRects)
+        }
+
+        @SuppressLint("ClickableViewAccessibility") // no click action: it's a drag handle
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            doubleTaps?.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    dragging = false
+                    alpha = 0.6f
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downX).toInt()
+                    val dy = (event.rawY - downY).toInt()
+                    if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                        dragging = true
+                        onStart()
+                    }
+                    if (dragging) onDrag(dx, dy)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    alpha = 1f
+                    if (dragging) onEnd()
+                    dragging = false
+                }
+            }
+            return true
+        }
+    }
+
+    companion object {
+        const val GRAB_BAR_DP = 22
+        const val RESIZE_STRIP_DP = 18
     }
 }

@@ -298,6 +298,7 @@ Add an intent filter on `MainActivity` for scheme `bubble`, host `link` (the aut
 - On expand: remove the bubble view, add `ChatPanelView` with `FLAG_NOT_TOUCH_MODAL | FLAG_LAYOUT_IN_SCREEN` but without `FLAG_NOT_FOCUSABLE` so the soft keyboard can open. Set `softInputMode = SOFT_INPUT_ADJUST_RESIZE`, but don't rely on it: it's unreliable for non-fullscreen overlay windows and deprecated from targetSdk 35. Listen for IME insets (`WindowInsetsCompat.Type.ime()`) on the panel and shrink/move it yourself so the composer stays above the keyboard.
 - On collapse (minimize button, back gesture, or tap outside via `FLAG_WATCH_OUTSIDE_TOUCH`): swap back to the bubble.
 - Restore bubble position from `Prefs`; on `onConfigurationChanged` clamp it inside the new screen bounds.
+- **Movable, resizable panel:** a grab bar on top moves it (double-tap resets), a corner grip at the bottom right resizes it (min 260 × 300 dp). The layout is saved in `Prefs.panelLayout` as screen fractions (survives rotation). The panel stays clear of the status bar and of the non-excludable pull-down / swipe-up-for-Home gesture zones (`mandatorySystemGestures`), which would otherwise steal drags. With the keyboard open it shrinks, and lifts if needed, using the screen-level IME inset (the panel's own inset is wrong when the keyboard covers it completely); it returns when the keyboard closes.
 - Return `START_STICKY` so the system restarts the service if killed.
 
 ### BubbleView.kt

@@ -196,6 +196,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             val params = buildPanelParams()
             panelParams = params
             panelFullHeight = params.height
+            keyboardRestY = null
             wm.updateViewLayout(view, params)
         }
     }
@@ -371,12 +372,40 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
 
     // ---------------------------------------------------------------- panel
 
-    private fun buildPanelParams(): WindowManager.LayoutParams {
+    /**
+     * Screen area the panel may use: full width, between the system bars, and
+     * clear of the pull-down-notifications and swipe-up-for-Home zones (these
+     * can't be excluded, so they'd steal drags on the grab bar / resize grip).
+     */
+    private fun panelArea(): Rect {
         val screen = screenBounds()
         val insets = systemInsets()
-        val usableHeight = screen.height() - insets.top - insets.bottom
-        val width = min((screen.width() * 0.92f).toInt(), dp(480))
-        val height = min((usableHeight * 0.62f).toInt(), dp(680)).coerceAtLeast(dp(320))
+        val gestures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            wm.currentWindowMetrics.windowInsets
+                .getInsetsIgnoringVisibility(WindowInsets.Type.mandatorySystemGestures())
+                .let { Rect(it.left, it.top, it.right, it.bottom) }
+        } else {
+            Rect()
+        }
+        return Rect(
+            0,
+            maxOf(insets.top, gestures.top),
+            screen.width(),
+            screen.height() - maxOf(insets.bottom, gestures.bottom),
+        )
+    }
+
+    /** The user's saved size/position (Prefs.panelLayout), or the default, fitted to the current screen. */
+    private fun buildPanelParams(): WindowManager.LayoutParams {
+        val area = panelArea()
+        val saved = prefs.panelLayout
+        val width = (saved?.let { (it.width * area.width()).toInt() } ?: min((area.width() * 0.92f).toInt(), dp(480)))
+            .coerceIn(min(dp(MIN_PANEL_WIDTH_DP), area.width()), area.width())
+        val height = (saved?.let { (it.height * area.height()).toInt() } ?: min((area.height() * 0.62f).toInt(), dp(680)))
+            .coerceIn(min(dp(MIN_PANEL_HEIGHT_DP), area.height()), area.height())
+        // Default: centred near the top, leaving the bottom of the screen for the keyboard.
+        val x = saved?.let { (it.x * area.width()).toInt() } ?: ((area.width() - width) / 2)
+        val y = saved?.let { area.top + (it.y * area.height()).toInt() } ?: (area.top + dp(12))
         return WindowManager.LayoutParams(
             width,
             height,
@@ -389,9 +418,8 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (screen.width() - width) / 2
-            // Near the top, leaving the bottom of the screen for the keyboard.
-            y = insets.top + dp(12)
+            this.x = x.coerceIn(area.left, area.right - width)
+            this.y = y.coerceIn(area.top, area.bottom - height)
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             windowAnimations = android.R.style.Animation_Dialog
         }
@@ -419,6 +447,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             panel = view
             panelParams = params
             panelFullHeight = params.height
+            keyboardRestY = null
         } catch (e: Exception) {
             Log.e(TAG, "Could not add the chat panel", e)
             view.detachWebView(web)
@@ -491,18 +520,120 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         }
     }
 
+    // ---------------------------------------------------------------- panel: keyboard, move, resize
+
+    /** The panel's own y before the keyboard pushed it up; null when it isn't pushed. */
+    private var keyboardRestY: Int? = null
+
+    /** A move/resize is in progress: the user decides the layout, not the keyboard. */
+    private var panelGesture = false
+    private var gestureStartX = 0
+    private var gestureStartY = 0
+    private var gestureStartWidth = 0
+    private var gestureStartHeight = 0
+
+    /**
+     * Keeps the composer above the keyboard: shrink the panel, and if it sits so
+     * low that too little would be left, lift it too (put back when the keyboard closes).
+     */
     override fun onKeyboardChanged(keyboardTop: Int?) {
+        if (panelGesture) return
         val view = panel ?: return
         val params = panelParams ?: return
-        val target = if (keyboardTop == null) {
-            panelFullHeight
+        val gap = dp(8)
+        // The panel's own inset is misleading when the keyboard covers it completely;
+        // the screen-level IME inset gives the keyboard's real top edge.
+        val keyboardTop = keyboardTop?.let { reported ->
+            val screenIme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.ime()).bottom
+            } else {
+                0
+            }
+            if (screenIme > 0) screenBounds().height() - screenIme else reported
+        }
+        if (keyboardTop == null) {
+            params.y = keyboardRestY ?: params.y
+            params.height = panelFullHeight
+            keyboardRestY = null
         } else {
-            (keyboardTop - params.y - dp(8)).coerceIn(dp(200), panelFullHeight)
+            val restY = keyboardRestY ?: params.y
+            val needed = min(panelFullHeight, dp(KEYBOARD_MIN_PANEL_DP))
+            val y = if (keyboardTop - gap - restY >= needed) restY else (keyboardTop - gap - needed).coerceAtLeast(panelArea().top)
+            keyboardRestY = if (y != restY) restY else null
+            params.y = y
+            params.height = (keyboardTop - gap - y).coerceIn(min(dp(160), panelFullHeight), panelFullHeight)
         }
-        if (target != params.height) {
-            params.height = target
-            wm.updateViewLayout(view, params)
-        }
+        wm.updateViewLayout(view, params)
+    }
+
+    override fun onPanelMoveStart() = startPanelGesture()
+
+    override fun onPanelMove(dx: Int, dy: Int) {
+        val view = panel ?: return
+        val params = panelParams ?: return
+        val area = panelArea()
+        params.x = (gestureStartX + dx).coerceIn(area.left, (area.right - params.width).coerceAtLeast(area.left))
+        params.y = (gestureStartY + dy).coerceIn(area.top, (area.bottom - params.height).coerceAtLeast(area.top))
+        wm.updateViewLayout(view, params)
+    }
+
+    override fun onPanelMoveEnd() = endPanelGesture()
+
+    override fun onPanelResizeStart() = startPanelGesture()
+
+    /** Bottom-right corner follows the finger; the top-left corner stays put. */
+    override fun onPanelResize(dx: Int, dy: Int) {
+        val view = panel ?: return
+        val params = panelParams ?: return
+        val area = panelArea()
+        val maxWidth = area.right - params.x
+        val maxHeight = area.bottom - params.y
+        params.width = (gestureStartWidth + dx).coerceIn(min(dp(MIN_PANEL_WIDTH_DP), maxWidth), maxWidth)
+        params.height = (gestureStartHeight + dy).coerceIn(min(dp(MIN_PANEL_HEIGHT_DP), maxHeight), maxHeight)
+        panelFullHeight = params.height
+        wm.updateViewLayout(view, params)
+    }
+
+    override fun onPanelResizeEnd() = endPanelGesture()
+
+    override fun onPanelResetLayout() {
+        val view = panel ?: return
+        val params = panelParams ?: return
+        prefs.panelLayout = null
+        val defaults = buildPanelParams()
+        params.x = defaults.x
+        params.y = defaults.y
+        params.width = defaults.width
+        params.height = defaults.height
+        panelFullHeight = defaults.height
+        keyboardRestY = null
+        wm.updateViewLayout(view, params)
+        view.requestApplyInsets() // the keyboard may be open
+    }
+
+    private fun startPanelGesture() {
+        val params = panelParams ?: return
+        panelGesture = true
+        // Where the user drops it is now its real place, even if the keyboard had lifted it.
+        keyboardRestY = null
+        gestureStartX = params.x
+        gestureStartY = params.y
+        gestureStartWidth = params.width
+        gestureStartHeight = params.height
+    }
+
+    /** Remember the layout (as screen fractions, so it survives rotation) and re-fit to the keyboard. */
+    private fun endPanelGesture() {
+        panelGesture = false
+        val params = panelParams ?: return
+        val area = panelArea()
+        prefs.panelLayout = Prefs.PanelLayout(
+            x = params.x.toFloat() / area.width(),
+            y = (params.y - area.top).toFloat() / area.height(),
+            width = params.width.toFloat() / area.width(),
+            height = panelFullHeight.toFloat() / area.height(),
+        )
+        panel?.requestApplyInsets()
     }
 
     private fun removeWindow(view: View) {
@@ -887,6 +1018,10 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         private const val NOTIFICATION_ID = 1
         private const val BRIDGE_NAME = "Android"
         private const val WEBVIEW_RETRY_MS = 15_000L
+        private const val MIN_PANEL_WIDTH_DP = 260
+        private const val MIN_PANEL_HEIGHT_DP = 300
+        /** With the keyboard open, at least this much of the panel stays visible above it. */
+        private const val KEYBOARD_MIN_PANEL_DP = 240
         private const val CAPTURE_DELAY_MS = 450L
         private const val CAPTURE_TIMEOUT_MS = 3_000L
         private const val EXTRA_TEXT = "text"

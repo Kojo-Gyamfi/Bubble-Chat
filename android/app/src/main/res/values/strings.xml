@@ -51,6 +51,8 @@
     <string name="panel_offline">Can\'t reach Bubble right now.</string>
     <string name="panel_retry">Try again</string>
     <string name="bubble_content_desc">Open Bubble chat</string>
+    <string name="panel_move">Move chat window. Double-tap to reset its size and position.</string>
+    <string name="panel_resize">Resize chat window</string>
 
     <string name="ask_bubble">Ask Bubble</string>
     <string name="voice_prompt">Speak to Bubble</string>
