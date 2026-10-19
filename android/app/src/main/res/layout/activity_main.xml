@@ -13,6 +13,52 @@
         android:paddingHorizontal="20dp"
         android:paddingVertical="24dp">
 
+        <!-- Update available (shown only when the server reports a newer build) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/updateBanner"
+            style="@style/Card"
+            android:layout_marginTop="0dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/RowTitle"
+                        android:text="@string/update_title" />
+
+                    <TextView
+                        android:id="@+id/updateText"
+                        style="@style/RowDesc"
+                        android:text="@string/update_desc" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/updateDismiss"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/update_dismiss" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/updateAction"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/update_action" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Header -->
         <LinearLayout
             android:layout_width="match_parent"

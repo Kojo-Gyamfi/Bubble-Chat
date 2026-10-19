@@ -13,6 +13,8 @@ import android.provider.Settings
 import android.util.Base64
 import android.widget.TextView
 import android.widget.Toast
+import java.net.HttpURLConnection
+import java.net.URL
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -68,8 +70,13 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
 
+        binding.updateDismiss.setOnClickListener { dismissUpdate() }
+
         // Only on a fresh launch, so rotating the screen doesn't re-handle the same link.
-        if (savedInstanceState == null) handleDeepLink(intent)
+        if (savedInstanceState == null) {
+            handleDeepLink(intent)
+            checkForUpdate()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -180,6 +187,53 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---------------------------------------------------------------- updates
+
+    /**
+     * We ship the APK ourselves, so check the web app for a newer build and offer
+     * a link to it. Best-effort: any failure (offline, bad JSON) is silently ignored.
+     */
+    private fun checkForUpdate() {
+        Thread {
+            val info = runCatching {
+                val conn = (URL("${BuildConfig.BASE_URL}/api/android-version").openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                    requestMethod = "GET"
+                }
+                try {
+                    if (conn.responseCode != 200) return@runCatching null
+                    JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                } finally {
+                    conn.disconnect()
+                }
+            }.getOrNull() ?: return@Thread
+
+            val latest = info.optInt("versionCode", 0)
+            val apkUrl = info.optString("apkUrl", "")
+            val name = info.optString("versionName", "")
+            if (latest <= BuildConfig.VERSION_CODE || apkUrl.isBlank()) return@Thread
+            runOnUiThread { showUpdateBanner(latest, name, apkUrl) }
+        }.start()
+    }
+
+    private fun showUpdateBanner(versionCode: Int, versionName: String, apkUrl: String) {
+        if (isFinishing || isDestroyed) return
+        // Respect a prior "Later" until an even newer build shows up.
+        if (dismissedUpdate() >= versionCode) return
+        binding.updateText.text =
+            if (versionName.isNotBlank()) getString(R.string.update_desc_version, versionName, BuildConfig.VERSION_NAME)
+            else getString(R.string.update_desc)
+        binding.updateAction.setOnClickListener { openUrl(apkUrl) }
+        binding.updateDismiss.tag = versionCode
+        binding.updateBanner.isVisible = true
+    }
+
+    private fun dismissUpdate() {
+        (binding.updateDismiss.tag as? Int)?.let { markDismissedUpdate(it) }
+        binding.updateBanner.isVisible = false
+    }
+
     // ---------------------------------------------------------------- state
 
     private fun refresh() {
@@ -254,6 +308,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun markAskedNotifications() {
         getSharedPreferences("ui", MODE_PRIVATE).edit { putBoolean("asked_notifications", true) }
+    }
+
+    private fun dismissedUpdate(): Int =
+        getSharedPreferences("ui", MODE_PRIVATE).getInt("dismissed_update", 0)
+
+    private fun markDismissedUpdate(versionCode: Int) {
+        getSharedPreferences("ui", MODE_PRIVATE).edit { putInt("dismissed_update", versionCode) }
     }
 
     private fun toast(message: Int) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()

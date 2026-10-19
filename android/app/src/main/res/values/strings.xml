@@ -4,6 +4,12 @@
     <string name="tagline">Your AI chat, floating over any app.</string>
     <string name="version_label">Version %1$s · Built by Nana Kojo</string>
 
+    <string name="update_title">Update available</string>
+    <string name="update_desc">A newer version of Bubble Chat is available.</string>
+    <string name="update_desc_version">Version %1$s is available. You have %2$s.</string>
+    <string name="update_action">Update</string>
+    <string name="update_dismiss">Later</string>
+
     <string name="section_setup">Setup</string>
     <string name="overlay_title">Display over other apps</string>
     <string name="overlay_desc">Required so the bubble can float on top of other apps.</string>
