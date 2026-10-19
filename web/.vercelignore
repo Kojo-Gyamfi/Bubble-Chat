@@ -1,0 +1,6 @@
+# CLI deploys (`vercel --prod` from web/): never upload local secrets or junk.
+.env*.local
+*-debug.log
+service-account*.json
+.next
+node_modules

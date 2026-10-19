@@ -19,3 +19,6 @@ android/local.properties
 
 # Firebase emulator logs
 *-debug.log
+
+.vercel
+.env*

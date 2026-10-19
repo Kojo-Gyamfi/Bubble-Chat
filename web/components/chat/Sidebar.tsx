@@ -4,6 +4,7 @@ import type { User } from "firebase/auth";
 import { LogOut, PanelLeft, Smartphone, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { InstallApp } from "@/components/InstallApp";
 import { IconButton, Logo } from "@/components/ui";
 import { groupByDate } from "@/lib/chat/group";
 import type { Conversation } from "@/lib/chat/schema";
@@ -60,6 +61,7 @@ export function Sidebar({
             Link bubble app
           </Link>
         )}
+        {!compact && <InstallApp variant="sidebar" />}
       </div>
 
       <div className={`${compact ? "mt-3" : "mt-5"} min-h-0 flex-1 overflow-y-auto px-2 pb-3`}>

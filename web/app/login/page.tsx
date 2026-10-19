@@ -5,6 +5,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { InstallApp } from "@/components/InstallApp";
 import { FullScreenSpinner } from "@/components/Spinner";
 import { Credit, Logo } from "@/components/ui";
 import { signInWithGoogle } from "@/lib/firebase/client";
@@ -59,6 +60,10 @@ export default function LoginPage() {
             {error}
           </p>
         )}
+
+        <div className="mt-3 w-full">
+          <InstallApp variant="page" />
+        </div>
 
         <p className="mt-10 text-xs text-muted-foreground">Invite only. Access is limited to approved accounts.</p>
         <Credit className="mt-1.5" />
