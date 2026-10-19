@@ -62,8 +62,9 @@ export function aiSdkProvider(
         maxOutputTokens: maxTokens,
         // Fall back to the next model instead of retrying a rate-limited one.
         maxRetries: 0,
-        // Stay well inside the route's 60 s maxDuration.
-        timeout: { firstChunkMs: 15_000, totalMs: 50_000 },
+        // A healthy model starts in 1-6 s; give up on a stuck one quickly and
+        // fall back. Stay well inside the route's 60 s maxDuration.
+        timeout: { firstChunkMs: 10_000, totalMs: 50_000 },
         // Errors arrive as stream parts (below) and streamWithFallback logs one line;
         // the SDK's default would also dump the whole request/response.
         onError: () => {},
@@ -108,7 +109,7 @@ function toModelMessage(m: LlmMessage, readsFiles: boolean): ModelMessage {
   return {
     role: "user",
     content: [
-      { type: "image", image: m.image.data, mediaType: m.image.mediaType },
+      { type: "file", data: m.image.data, mediaType: m.image.mediaType },
       { type: "text", text: m.content },
     ],
   };
@@ -130,15 +131,19 @@ const mockProvider: LlmProvider = {
 // ---- the model chain ----
 
 /**
- * Models to try, best first. Free limits are per model, so the chain adds
+ * Models to try, fastest first. Free limits are per model, so the chain adds
  * them up: a model that runs out is skipped until it resets. Each entry is
  * `provider:model`, optionally `@reasoning` (thinking effort). Override with
  * LLM_CHAIN in the environment.
+ *
+ * Order is by time to first word (measured Oct 2026): 3.5 Flash-Lite ~1 s with
+ * 500 free requests/day carries most traffic; 3.6 Flash (~6 s) and 3.8 Flash
+ * (often no reply within 40 s) are late backups.
  */
 export const DEFAULT_CHAIN =
-  "gemini:gemini-3.8-flash@low, gemini:gemini-3.6-flash, gemini:gemini-2.5-flash, " +
-  "gemini:gemini-3.5-flash-lite, gemini:gemini-3.1-flash-lite, " +
-  "groq:openai/gpt-oss-120b, groq:qwen/qwen3.8-27b, groq:openai/gpt-oss-20b";
+  "gemini:gemini-3.5-flash-lite, gemini:gemini-2.5-flash, gemini:gemini-3.1-flash-lite, " +
+  "groq:openai/gpt-oss-120b, gemini:gemini-3.6-flash, gemini:gemini-3.8-flash@low, " +
+  "groq:qwen/qwen3.8-27b, groq:openai/gpt-oss-20b";
 
 const REASONING_LEVELS = new Set(["none", "minimal", "low", "medium", "high"]);
 
@@ -246,6 +251,21 @@ export function rateLimitCooldownMs(err: unknown): number | null {
   return Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, hint ?? fallback));
 }
 
+/** Outages and timeouts: skip the model briefly so every request doesn't wait on it. */
+const FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
+
+/**
+ * How long to skip a model after it failed before its first word: the rate
+ * limit wait for a 429, a few minutes for a timeout / 5xx / network error, and
+ * not at all for other 4xx (those are about this request, not the model).
+ */
+export function failureCooldownMs(err: unknown): number | null {
+  const rateLimit = rateLimitCooldownMs(err);
+  if (rateLimit !== null) return rateLimit;
+  if (APICallError.isInstance(err) && err.statusCode !== undefined && err.statusCode < 500) return null;
+  return FAILURE_COOLDOWN_MS;
+}
+
 /** Tests only. */
 export function resetCooldowns(): void {
   cooldowns.clear();
@@ -266,8 +286,8 @@ function describeError(err: unknown): string {
 /**
  * Streams from the first available model in the chain. If a model fails
  * before producing any text (rate limit, outage, timeout), the next one is
- * tried; a rate-limited model is also skipped for later requests until it
- * resets. Once text has been sent, an error is final.
+ * tried, and the failed one is skipped for later requests for a while (a
+ * rate-limited one until it resets). Once text has been sent, an error is final.
  */
 export async function* streamWithFallback(
   chain: LlmProvider[],
@@ -292,10 +312,12 @@ export async function* streamWithFallback(
       }
       return;
     } catch (err) {
-      const wait = rateLimitCooldownMs(err);
+      // Stopped by the user: not the model's fault, so no cooldown either.
+      if (opts.abortSignal?.aborted) throw err;
+      const wait = started ? rateLimitCooldownMs(err) : failureCooldownMs(err);
       if (wait !== null) cooldowns.set(provider.name, Date.now() + wait);
-      // Stopped by the user, already mid-reply, or out of models: don't try another.
-      if (opts.abortSignal?.aborted || started || i === order.length - 1) throw err;
+      // Already mid-reply, or out of models: don't try another.
+      if (started || i === order.length - 1) throw err;
       console.warn(
         `LLM "${provider.name}" failed (${describeError(err)})` +
           `${wait !== null ? `; skipping it for ${formatWait(wait)}` : ""}; trying "${order[i + 1].name}"`,

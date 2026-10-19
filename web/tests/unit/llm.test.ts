@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   aiSdkProvider,
   DEFAULT_CHAIN,
+  failureCooldownMs,
   type LlmProvider,
   type LlmUsage,
   parseChain,
@@ -36,6 +37,8 @@ function fake(name: string, chunks: string[], failAt?: number): LlmProvider {
 }
 
 describe("streamWithFallback", () => {
+  beforeEach(() => resetCooldowns());
+
   it("uses the first provider when it works", async () => {
     const text = await collect(streamWithFallback([fake("a", ["he", "llo"]), fake("b", ["no"])], messages, opts));
     expect(text).toBe("hello");
@@ -206,6 +209,22 @@ describe("rateLimitCooldownMs", () => {
   });
 });
 
+describe("failureCooldownMs", () => {
+  it("uses the rate limit wait for a 429", () => {
+    expect(failureCooldownMs(apiError(429, GEMINI_DAILY_429))).toBe(50_481_000);
+  });
+
+  it("skips a model for a few minutes after a timeout, network error or 5xx", () => {
+    expect(failureCooldownMs(new DOMException("timed out", "TimeoutError"))).toBe(300_000);
+    expect(failureCooldownMs(new Error("network"))).toBe(300_000);
+    expect(failureCooldownMs(apiError(503, "{}", "overloaded"))).toBe(300_000);
+  });
+
+  it("doesn't blame the model for a bad request", () => {
+    expect(failureCooldownMs(apiError(400, "{}", "invalid argument"))).toBeNull();
+  });
+});
+
 describe("streamWithFallback cooldowns", () => {
   beforeEach(() => resetCooldowns());
 
@@ -245,6 +264,41 @@ describe("streamWithFallback cooldowns", () => {
     let model: string | undefined;
     await collect(streamWithFallback([limited("gemini:a", calls), working("groq:b", calls)], messages, { ...opts, onModel: (m) => (model = m) }));
     expect(model).toBe("groq:b");
+  });
+
+  it("skips a model that timed out on later requests", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls: string[] = [];
+    const stuck: LlmProvider = {
+      name: "gemini:slow",
+      supportsImages: false,
+      async *stream() {
+        calls.push("gemini:slow");
+        throw new DOMException("timed out", "TimeoutError");
+      },
+    };
+    const chain = [stuck, working("gemini:b", calls)];
+    await collect(streamWithFallback(chain, messages, opts));
+    await collect(streamWithFallback(chain, messages, opts));
+    expect(calls).toEqual(["gemini:slow", "gemini:b", "gemini:b"]);
+  });
+
+  it("doesn't put a model on cooldown when the user pressed Stop", async () => {
+    const calls: string[] = [];
+    const stop = new AbortController();
+    const aborted: LlmProvider = {
+      name: "gemini:a",
+      supportsImages: false,
+      async *stream() {
+        calls.push("gemini:a");
+        stop.abort();
+        throw new DOMException("aborted", "AbortError");
+      },
+    };
+    const chain = [aborted, working("gemini:b", calls)];
+    await expect(collect(streamWithFallback(chain, messages, { ...opts, abortSignal: stop.signal }))).rejects.toThrow();
+    await collect(streamWithFallback([working("gemini:a", calls), working("gemini:b", calls)], messages, opts));
+    expect(calls).toEqual(["gemini:a", "gemini:a"]);
   });
 
   it("still tries everything when every model is cooling down", async () => {
