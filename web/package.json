@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "allow": "node --env-file=.env.local scripts/allow-user.mts",
+    "splash": "node scripts/splash-images.mts",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore --project demo-bubble \"vitest run --config vitest.rules.config.mts\""

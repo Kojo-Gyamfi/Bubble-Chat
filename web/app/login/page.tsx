@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { InstallApp } from "@/components/InstallApp";
-import { FullScreenSpinner } from "@/components/Spinner";
+import { SplashScreen } from "@/components/Spinner";
 import { Credit, Logo } from "@/components/ui";
 import { signInWithGoogle } from "@/lib/firebase/client";
 
@@ -20,7 +20,7 @@ export default function LoginPage() {
     if (user) router.replace(safeNext(window.location.search));
   }, [user, router]);
 
-  if (user !== null) return <FullScreenSpinner />;
+  if (user !== null) return <SplashScreen />;
 
   async function handleSignIn() {
     setBusy(true);

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { FullScreenSpinner } from "@/components/Spinner";
+import { SplashScreen } from "@/components/Spinner";
 
 export default function AppLayout({ children }: LayoutProps<"/">) {
   const { user } = useAuth();
@@ -13,6 +13,6 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
     if (user === null) router.replace("/login");
   }, [user, router]);
 
-  if (!user) return <FullScreenSpinner />;
+  if (!user) return <SplashScreen />;
   return children;
 }

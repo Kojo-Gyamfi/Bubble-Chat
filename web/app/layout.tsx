@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import { ServiceWorker } from "@/components/ServiceWorker";
+import { iosStartupImages } from "@/lib/ios-splash";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,7 +20,7 @@ export const metadata: Metadata = {
   description: "A private AI chat, built by Nana Kojo",
   authors: [{ name: "Kwadwo Gyamfi (Nana Kojo)" }],
   creator: "Kwadwo Gyamfi (Nana Kojo)",
-  appleWebApp: { capable: true, title: "Bubble Chat", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Bubble Chat", statusBarStyle: "default", startupImage: iosStartupImages },
 };
 
 export const viewport: Viewport = {
