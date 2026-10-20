@@ -1,10 +1,11 @@
 import { APICallError, simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   aiSdkProvider,
   DEFAULT_CHAIN,
   failureCooldownMs,
+  HEDGE_AFTER_MS,
   type LlmProvider,
   type LlmUsage,
   parseChain,
@@ -308,5 +309,101 @@ describe("streamWithFallback cooldowns", () => {
     await expect(collect(streamWithFallback(chain, messages, opts))).rejects.toThrow();
     await expect(collect(streamWithFallback(chain, messages, opts))).rejects.toThrow();
     expect(calls).toEqual(["gemini:a", "gemini:b", "gemini:a", "gemini:b"]);
+  });
+});
+
+describe("streamWithFallback hedging (slow models)", () => {
+  beforeEach(() => {
+    resetCooldowns();
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => vi.useRealTimers());
+
+  /** Answers after `ms`, unless its abort signal fires first. */
+  function delayed(name: string, ms: number, calls: string[], signals: AbortSignal[] = []): LlmProvider {
+    return {
+      name,
+      supportsImages: false,
+      async *stream(_messages, { abortSignal }) {
+        calls.push(name);
+        if (abortSignal) signals.push(abortSignal);
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, ms);
+          abortSignal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        });
+        yield `from ${name}`;
+      },
+    };
+  }
+
+  it("starts the next model when the first is slow, and uses whichever answers first", async () => {
+    const calls: string[] = [];
+    const signals: AbortSignal[] = [];
+    let model: string | undefined;
+    const chain = [delayed("gemini:slow", 20_000, calls, signals), delayed("gemini:fast", 500, calls)];
+    const reply = collect(streamWithFallback(chain, messages, { ...opts, onModel: (m) => (model = m) }));
+    await vi.advanceTimersByTimeAsync(HEDGE_AFTER_MS + 500);
+    expect(await reply).toBe("from gemini:fast");
+    expect(model).toBe("gemini:fast");
+    expect(signals[0].aborted).toBe(true); // the slow one was stopped
+
+    // The slow one is skipped on the next request.
+    const again = collect(streamWithFallback(chain, messages, opts));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await again).toBe("from gemini:fast");
+    expect(calls).toEqual(["gemini:slow", "gemini:fast", "gemini:fast"]);
+  });
+
+  it("doesn't start another model when the first answers in time", async () => {
+    const calls: string[] = [];
+    const reply = collect(streamWithFallback([delayed("a", HEDGE_AFTER_MS - 500, calls), delayed("b", 10, calls)], messages, opts));
+    await vi.advanceTimersByTimeAsync(HEDGE_AFTER_MS);
+    expect(await reply).toBe("from a");
+    expect(calls).toEqual(["a"]);
+  });
+
+  it("keeps the slow model if it still answers first", async () => {
+    const calls: string[] = [];
+    const chain = [delayed("a", HEDGE_AFTER_MS + 100, calls), delayed("b", 5_000, calls)];
+    const reply = collect(streamWithFallback(chain, messages, opts));
+    await vi.advanceTimersByTimeAsync(HEDGE_AFTER_MS + 100);
+    expect(await reply).toBe("from a");
+    // "a" answered, so it isn't sidelined.
+    const again = collect(streamWithFallback(chain, messages, opts));
+    await vi.advanceTimersByTimeAsync(HEDGE_AFTER_MS + 100);
+    expect(await again).toBe("from a");
+    expect(calls).toEqual(["a", "b", "a", "b"]);
+  });
+
+  it("tries the next model right away when one fails fast", async () => {
+    const calls: string[] = [];
+    let done = false;
+    const reply = collect(streamWithFallback([fake("a", ["x"], 0), delayed("b", 100, calls)], messages, opts)).finally(
+      () => (done = true),
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect(done).toBe(true); // didn't wait for the hedge delay
+    expect(await reply).toBe("from b");
+  });
+
+  it("Stop ends every running model without sidelining them", async () => {
+    const calls: string[] = [];
+    const signals: AbortSignal[] = [];
+    const stop = new AbortController();
+    const chain = [delayed("a", 20_000, calls, signals), delayed("b", 20_000, calls, signals)];
+    const reply = expect(collect(streamWithFallback(chain, messages, { ...opts, abortSignal: stop.signal }))).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(HEDGE_AFTER_MS + 100);
+    expect(calls).toEqual(["a", "b"]);
+    stop.abort();
+    await reply;
+    expect(signals.every((s) => s.aborted)).toBe(true);
+
+    const again = collect(streamWithFallback([delayed("a", 10, calls), delayed("b", 10, calls)], messages, opts));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await again).toBe("from a");
   });
 });

@@ -18,6 +18,9 @@ function toListenerError(err: unknown): ListenerError {
 /** Messages loaded per conversation (newest). */
 const MAX_LOADED_MESSAGES = 100;
 
+/** Hidden at least this long: refresh the token and wake the server when the app comes back. */
+const RESUME_REFRESH_MS = 5 * 60 * 1000;
+
 export function useConversations(uid: string) {
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [error, setError] = useState<ListenerError | null>(null);
@@ -155,9 +158,21 @@ export function useChat(user: User, conversationId: string | null) {
   // Messages left today; shown when it gets low. null = unknown yet.
   const [messagesLeft, setMessagesLeft] = useState<number | null>(null);
   useEffect(() => {
-    fetchMessagesLeft(user)
-      .then(setMessagesLeft)
-      .catch(() => {}); // only a hint
+    const refresh = () =>
+      fetchMessagesLeft(user)
+        .then(setMessagesLeft)
+        .catch(() => {}); // only a hint
+    refresh();
+
+    // Back after a break: refresh now, which also renews the expired sign-in
+    // token and wakes the server, so the next message doesn't wait for both.
+    let hiddenAt = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt >= RESUME_REFRESH_MS) refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [user]);
 
   /** Sends a message (and optional photo or document); returns the conversation ID (new if none was active). */

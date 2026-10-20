@@ -284,10 +284,33 @@ function describeError(err: unknown): string {
 }
 
 /**
+ * No first word from a model after this long: also start the next one and use
+ * whichever answers first. Free models are sometimes slow for a while (Oct 2026:
+ * 3.5 Flash-Lite took 17-24 s while 2.5 Flash took ~1 s), and a fresh server
+ * instance doesn't know which ones are, so waiting for the timeout made the
+ * first message after a break slow.
+ */
+export const HEDGE_AFTER_MS = 3_000;
+
+interface Attempt {
+  provider: LlmProvider;
+  startedAt: number;
+  controller: AbortController;
+  iterator: AsyncIterator<string>;
+  /** The attempt's first chunk (or end, or error). */
+  first: Promise<Outcome>;
+}
+
+type Outcome = { attempt: Attempt; ok: true; result: IteratorResult<string> } | { attempt: Attempt; ok: false; error: unknown };
+
+/**
  * Streams from the first available model in the chain. If a model fails
  * before producing any text (rate limit, outage, timeout), the next one is
  * tried, and the failed one is skipped for later requests for a while (a
- * rate-limited one until it resets). Once text has been sent, an error is final.
+ * rate-limited one until it resets). If it's just slow (no text after
+ * HEDGE_AFTER_MS), the next one is started alongside it; the first to answer
+ * wins, the other is stopped, and a slow loser is skipped for a while too.
+ * Once text has been sent, an error is final.
  */
 export async function* streamWithFallback(
   chain: LlmProvider[],
@@ -299,29 +322,98 @@ export async function* streamWithFallback(
   // Everything cooling down: try them all anyway (a limit may have reset early).
   const order = ready.length ? ready : chain;
 
-  for (const [i, provider] of order.entries()) {
-    let started = false;
-    try {
-      for await (const chunk of provider.stream(messages, opts)) {
-        if (!started) {
-          started = true;
-          cooldowns.delete(provider.name);
-          opts.onModel?.(provider.name);
-        }
-        yield chunk;
+  const running: Attempt[] = [];
+  let next = 0;
+  let winner: Attempt | undefined;
+  let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const start = () => {
+    const provider = order[next++];
+    const controller = new AbortController();
+    // The user's Stop ends every attempt; our own controller ends just this one.
+    const abortSignal = opts.abortSignal ? AbortSignal.any([opts.abortSignal, controller.signal]) : controller.signal;
+    const iterator = provider.stream(messages, { ...opts, abortSignal })[Symbol.asyncIterator]();
+    const attempt = { provider, startedAt: Date.now(), controller, iterator } as Attempt;
+    attempt.first = iterator.next().then(
+      (result): Outcome => ({ attempt, ok: true, result }),
+      (error: unknown): Outcome => ({ attempt, ok: false, error }),
+    );
+    running.push(attempt);
+  };
+
+  try {
+    start();
+    while (!winner) {
+      const newest = running.at(-1);
+      const hedge =
+        newest && next < order.length
+          ? new Promise<"hedge">((resolve) => {
+              hedgeTimer = setTimeout(() => resolve("hedge"), Math.max(0, newest.startedAt + HEDGE_AFTER_MS - Date.now()));
+            })
+          : null;
+      const outcome = await Promise.race([...running.map((a) => a.first), ...(hedge ? [hedge] : [])]);
+      clearTimeout(hedgeTimer);
+
+      if (outcome === "hedge") {
+        console.warn(`LLM "${newest?.provider.name}" has no reply after ${HEDGE_AFTER_MS / 1000}s; also trying "${order[next].name}"`);
+        start();
+        continue;
       }
-      return;
-    } catch (err) {
-      // Stopped by the user: not the model's fault, so no cooldown either.
-      if (opts.abortSignal?.aborted) throw err;
-      const wait = started ? rateLimitCooldownMs(err) : failureCooldownMs(err);
-      if (wait !== null) cooldowns.set(provider.name, Date.now() + wait);
-      // Already mid-reply, or out of models: don't try another.
-      if (started || i === order.length - 1) throw err;
-      console.warn(
-        `LLM "${provider.name}" failed (${describeError(err)})` +
-          `${wait !== null ? `; skipping it for ${formatWait(wait)}` : ""}; trying "${order[i + 1].name}"`,
-      );
+
+      const { attempt } = outcome;
+      running.splice(running.indexOf(attempt), 1);
+      if (!outcome.ok) {
+        // Stopped by the user: not the model's fault, so no cooldown either.
+        if (opts.abortSignal?.aborted) throw outcome.error;
+        const wait = failureCooldownMs(outcome.error);
+        if (wait !== null) cooldowns.set(attempt.provider.name, Date.now() + wait);
+        // Out of models: give up.
+        if (running.length === 0 && next >= order.length) throw outcome.error;
+        console.warn(
+          `LLM "${attempt.provider.name}" failed (${describeError(outcome.error)})` +
+            `${wait !== null ? `; skipping it for ${formatWait(wait)}` : ""}` +
+            `${running.length ? "; waiting for the other model" : `; trying "${order[next].name}"`}`,
+        );
+        if (running.length === 0) start();
+        continue;
+      }
+
+      winner = attempt;
+      for (const other of running) {
+        // Started before the winner, so it had its head start and lost: skip it for a while.
+        if (other.startedAt < attempt.startedAt) cooldowns.set(other.provider.name, Date.now() + FAILURE_COOLDOWN_MS);
+        other.controller.abort();
+        other.iterator.return?.().catch(() => {});
+      }
+      running.length = 0;
+
+      if (outcome.result.done) return;
+      cooldowns.delete(attempt.provider.name);
+      opts.onModel?.(attempt.provider.name);
+      yield outcome.result.value;
     }
+
+    try {
+      for (;;) {
+        const { done, value } = await winner.iterator.next();
+        if (done) return;
+        yield value;
+      }
+    } catch (err) {
+      // Mid-reply errors are final; only a rate limit sidelines the model.
+      if (!opts.abortSignal?.aborted) {
+        const wait = rateLimitCooldownMs(err);
+        if (wait !== null) cooldowns.set(winner.provider.name, Date.now() + wait);
+      }
+      throw err;
+    }
+  } finally {
+    clearTimeout(hedgeTimer);
+    // Error or the reader stopped early: end whatever is still running.
+    for (const other of running) {
+      other.controller.abort();
+      other.iterator.return?.().catch(() => {});
+    }
+    winner?.iterator.return?.().catch(() => {});
   }
 }
