@@ -9,8 +9,8 @@ See [CLAUDE.md](CLAUDE.md) for the full plan.
 - [x] Phase 1: PWA with Google login, live history, mocked streaming replies
 - [x] Phase 2: real LLM (Gemini → Groq fallback), usage limits, delete
 - [x] Phase 3: `/overlay` page + JS bridge, bubble linking
-- [ ] Phase 4: Android bubble app
-- [ ] Phase 5: signing, distribution, deploy
+- [x] Phase 4: Android bubble app
+- [x] Phase 5: signing, distribution, deploy
 
 ## One-time Firebase setup (free Spark plan, never upgrade to Blaze)
 
