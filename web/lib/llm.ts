@@ -379,9 +379,11 @@ export async function* streamWithFallback(
       }
 
       winner = attempt;
+      // Ended without text: the user's Stop (AI SDK streams end quietly on abort) or an empty reply.
+      const answered = !outcome.result.done && !opts.abortSignal?.aborted;
       for (const other of running) {
         // Started before the winner, so it had its head start and lost: skip it for a while.
-        if (other.startedAt < attempt.startedAt) cooldowns.set(other.provider.name, Date.now() + FAILURE_COOLDOWN_MS);
+        if (answered && other.startedAt < attempt.startedAt) cooldowns.set(other.provider.name, Date.now() + FAILURE_COOLDOWN_MS);
         other.controller.abort();
         other.iterator.return?.().catch(() => {});
       }

@@ -406,4 +406,28 @@ describe("streamWithFallback hedging (slow models)", () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(await again).toBe("from a");
   });
+
+  // Real AI SDK streams end quietly (no error) when aborted.
+  it("Stop doesn't sideline a model even when the streams end quietly", async () => {
+    const calls: string[] = [];
+    const stop = new AbortController();
+    const quiet = (name: string, lag: number): LlmProvider => ({
+      name,
+      supportsImages: false,
+      async *stream(_messages, { abortSignal }) {
+        calls.push(name);
+        await new Promise<void>((resolve) => abortSignal?.addEventListener("abort", () => setTimeout(resolve, lag)));
+      },
+    });
+    // "b" (started second) ends first after the Stop.
+    const reply = collect(streamWithFallback([quiet("a", 50), quiet("b", 0)], messages, { ...opts, abortSignal: stop.signal }));
+    await vi.advanceTimersByTimeAsync(HEDGE_AFTER_MS + 100);
+    stop.abort();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await reply).toBe("");
+
+    const again = collect(streamWithFallback([delayed("a", 10, calls), delayed("b", 10, calls)], messages, opts));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await again).toBe("from a"); // "a" wasn't put on cooldown
+  });
 });
