@@ -108,7 +108,16 @@ export async function streamChat(
     idle = setTimeout(() => controller.abort(), STREAM_IDLE_TIMEOUT_MS);
   };
   const userStopped = () => signal?.aborted === true;
-  const onStop = () => controller.abort();
+  const onStop = () => {
+    controller.abort();
+    // Closing the request doesn't reach the server on Vercel: tell it explicitly, so
+    // generation really ends and the partial reply is saved as stopped.
+    authedFetch(user, "/api/chat/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId: request.conversationId, assistantMessageId: request.assistantMessageId }),
+    }).catch(() => {}); // best effort; the closed request still stops it where it can
+  };
   signal?.addEventListener("abort", onStop, { once: true });
 
   try {

@@ -3,6 +3,7 @@ import { errorResponse, requireUser } from "@/lib/auth";
 import { readDocument } from "@/lib/chat/documents";
 import { chatRequestSchema } from "@/lib/chat/schema";
 import { appendAssistantMessage, appendUserMessage, loadHistory } from "@/lib/chat/store";
+import { watchStop } from "@/lib/chat/stop";
 import { streamAndPersist } from "@/lib/chat/stream";
 import { renderFile } from "@/lib/files/render";
 import { saveFile } from "@/lib/files/store";
@@ -22,6 +23,15 @@ export const runtime = "nodejs";
 // A reply that searches the web or writes a whole document can take 20-120 s
 // (Claude's own timeout is 240 s). 300 s is the Vercel Hobby maximum.
 export const maxDuration = 300;
+
+/** Runs `cleanup` once the reply ends: finished, failed or stopped. */
+async function* whenDone<T>(source: AsyncIterable<T>, cleanup: () => void): AsyncGenerator<T> {
+  try {
+    yield* source;
+  } finally {
+    cleanup();
+  }
+}
 
 const NO_IMAGE_MODEL =
   "Photo and scanned-document questions are unavailable right now (the AI that reads them is busy). Try again later, or ask in text.";
@@ -66,9 +76,11 @@ export async function POST(req: Request) {
     // after(): finish the save even if we return early (e.g. 503 when every model fails).
     after(userSaved.catch((err) => console.error("Failed to save user message", err)));
 
-    // Stop button / closed page: end the model call and save what we have.
+    // Stop button / closed page: end the model call and save what we have. Vercel
+    // doesn't tell us when the client goes away, so Stop also writes a marker we watch.
     const stop = new AbortController();
     req.signal.addEventListener("abort", () => stop.abort(), { once: true });
+    const unwatchStop = watchStop(user.uid, conversationId, assistantMessageId, () => stop.abort());
 
     let usage: LlmUsage | undefined;
     let model: string | undefined;
@@ -91,13 +103,16 @@ export async function POST(req: Request) {
       },
     );
     // Files the model writes (<bubble-file> blocks) are built, saved and linked here.
-    const reply = withFiles(replyText, {
-      signal: stop.signal,
-      make: async ({ format, name, content }) => {
-        const { data } = await renderFile(format, name, content);
-        return saveFile({ uid: user.uid, conversationId, origin }, { format, name, data });
-      },
-    });
+    const reply = whenDone(
+      withFiles(replyText, {
+        signal: stop.signal,
+        make: async ({ format, name, content }) => {
+          const { data } = await renderFile(format, name, content);
+          return saveFile({ uid: user.uid, conversationId, origin }, { format, name, data });
+        },
+      }),
+      unwatchStop,
+    );
 
     return await streamAndPersist(
       reply,

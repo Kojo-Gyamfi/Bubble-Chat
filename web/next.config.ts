@@ -8,9 +8,11 @@ const nextConfig: NextConfig = {
   experimental: {
     agentUpgrade: "security",
   },
-  // Word/PDF/Excel/PowerPoint builders (lib/files): run from node_modules as-is
-  // rather than bundled (pdfkit, exceljs and pptxgenjs read their own files).
-  serverExternalPackages: ["pdfmake", "pdfkit", "exceljs", "pptxgenjs"],
+  // PDF/Excel builders (lib/files): run from node_modules as-is rather than
+  // bundled (pdfkit and exceljs read their own files). Not pptxgenjs: its
+  // "import" entry is ES-module code in a .js file without "type": "module",
+  // which Vercel's Node refuses to load (it took /api/chat down), so it's bundled.
+  serverExternalPackages: ["pdfmake", "pdfkit", "exceljs"],
   // The PDF font files are read at runtime, so ship them with the chat function.
   outputFileTracingIncludes: {
     "/api/chat": ["./node_modules/dejavu-fonts-ttf/ttf/DejaVuSans*.ttf"],
