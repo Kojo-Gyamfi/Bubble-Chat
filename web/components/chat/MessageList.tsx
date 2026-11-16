@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, ArrowDown, Square, Volume2 } from "lucide-react";
+import { AlertCircle, ArrowDown, Square, SquareDashedText, Volume2 } from "lucide-react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { FileCard } from "@/components/chat/FileCard";
 import { FileChip } from "@/components/chat/FileChip";
@@ -8,6 +8,8 @@ import { Markdown } from "@/components/chat/Markdown";
 import { CopyButton, IconButton } from "@/components/ui";
 import { splitFileBlocks } from "@/lib/chat/file-blocks";
 import type { DisplayMessage } from "@/lib/chat/hooks";
+import { messagePlainText } from "@/lib/chat/plain-text";
+import { bridge } from "@/lib/bridge";
 import { type ReplyStatus, STATUS_LABEL } from "@/lib/chat/status";
 import { canSpeak, speak, stopSpeaking, useSpeakingId } from "@/lib/speech";
 
@@ -96,9 +98,10 @@ export function MessageList({
 }
 
 function MessageItem({ message, compact }: { message: DisplayMessage; compact: boolean }) {
+  const canSelect = useNativeSelect();
   if (message.role === "user") {
     return (
-      <div className="group flex flex-col items-end gap-1.5">
+      <div className="group flex flex-col items-end gap-1.5" data-message-id={message.id}>
         {message.image && (
           // eslint-disable-next-line @next/next/no-img-element -- thumbnail data URL from Firestore
           <img
@@ -119,9 +122,12 @@ function MessageItem({ message, compact }: { message: DisplayMessage; compact: b
             {message.content}
           </div>
         )}
-        {!compact && !message.pending && message.content && (
-          <div className="mt-1 flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        {!message.pending && message.content && (!compact || canSelect) && (
+          <div
+            className={`flex ${compact ? "-mr-1.5" : "mt-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"}`}
+          >
             <CopyButton text={message.content} label="Copy message" />
+            {canSelect && <SelectTextButton text={message.content} title="Your message" />}
           </div>
         )}
       </div>
@@ -149,7 +155,7 @@ function MessageItem({ message, compact }: { message: DisplayMessage; compact: b
   const copyText = parts.map((p) => (p.type === "text" ? p.text : `\n\n${p.content}\n\n`)).join("").trim();
 
   return (
-    <div className="group">
+    <div className="group" data-message-id={message.id}>
       {parts.map((part, i) =>
         part.type === "text" ? (
           part.text.trim() && <Markdown key={i}>{part.text}</Markdown>
@@ -162,6 +168,7 @@ function MessageItem({ message, compact }: { message: DisplayMessage; compact: b
         <div className="mt-1.5 -ml-1.5 flex items-center gap-0.5">
           <CopyButton text={copyText} />
           <ReadAloudButton id={message.id} text={message.content} />
+          {canSelect && <SelectTextButton text={message.content} title="Bubble's reply" />}
         </div>
       )}
     </div>
@@ -180,6 +187,24 @@ function ReplyStatusLine({ status }: { status?: ReplyStatus | null }) {
 }
 
 const noSubscribe = () => () => {};
+
+let nativeSelect: boolean | undefined;
+/** In the bubble app (0.6+): messages can be opened in a screen where Android's text selection works. */
+function useNativeSelect(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => (nativeSelect ??= bridge.isNative() && bridge.capabilities().select),
+    () => false,
+  );
+}
+
+/**
+ * The bubble's window can't show Android's Copy / Share / Select all menu, so
+ * this opens the message in a normal screen to select any part of it.
+ */
+function SelectTextButton({ text, title }: { text: string; title: string }) {
+  return <IconButton icon={SquareDashedText} label="Select text" size="sm" onClick={() => bridge.selectText(messagePlainText(text), title)} />;
+}
 
 function ReadAloudButton({ id, text }: { id: string; text: string }) {
   const supported = useSyncExternalStore(noSubscribe, canSpeak, () => false);

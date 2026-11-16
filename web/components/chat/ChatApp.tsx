@@ -4,6 +4,7 @@ import type { User } from "firebase/auth";
 import { Menu, PanelLeft, ShieldAlert, SquarePen } from "lucide-react";
 import { useRef, useState } from "react";
 import { Composer, type ComposerHandle, messagesLeftNotice } from "@/components/chat/Composer";
+import { SelectionMenu } from "@/components/chat/SelectionMenu";
 import { EmptyState } from "@/components/chat/EmptyState";
 import { MessageList } from "@/components/chat/MessageList";
 import { Sidebar } from "@/components/chat/Sidebar";
@@ -106,6 +107,13 @@ export function ChatApp({ user }: { user: User }) {
           messages={messages}
           loading={loading}
           empty={<EmptyState name={user.displayName} onStart={(starter) => composer.current?.setDraft(starter)} />}
+        />
+        <SelectionMenu
+          messages={messages}
+          canSelectMore={false}
+          // Phones show their own Copy/Share bar above a selection: keep ours below it.
+          placement="below"
+          onAsk={(quote) => composer.current?.appendText(`“${quote}”\n`)}
         />
         <Composer
           ref={composer}

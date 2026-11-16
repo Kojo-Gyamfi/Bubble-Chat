@@ -242,10 +242,11 @@ Native → exposed on `window.Android` via `@JavascriptInterface`:
 | `getAppVersion()` | string | show in settings, for update checks |
 | `onLinked()` | void | web signed in with the custom token; native clears it from `Prefs` |
 | `setAccount(account)` | void | signed-in email ("" = signed out); the app's Account section shows "Account linked" (optional: missing in older APKs) |
-| `getCapabilities()` | JSON | `{photo, file, screen, voice, speech}`; the page only shows buttons that work (all missing in app 0.1) |
+| `getCapabilities()` | JSON | `{photo, file, screen, voice, speech, select}`; the page only shows buttons that work (all missing in app 0.1) |
 | `pickImage("camera"|"gallery")`, `pickFile()`, `captureScreen()`, `startVoiceInput()` | void | native opens the camera / photo picker / screen-capture consent / Google voice typing via the invisible `ActionActivity` (panel collapses meanwhile) |
 | `takePending()` | JSON or "" | text from "Ask Bubble"/Share, voice result, photo (JPEG data URL), document (`{name, mimeType, dataUrl}`) or error waiting for the page; taken once |
 | `speak(text)`, `stopSpeaking()` | void | read an answer aloud with Android TextToSpeech |
+| `selectText(text, title)` | void | app 0.6+ (`select` capability): opens the message as plain text in `SelectTextActivity`, a normal screen where Android's selection handles and Copy / Share / Select all menu work (they can't in the service-owned bubble window). The panel collapses and the bubble hides meanwhile; Done/Back reopens the panel |
 
 Native → web events: `window.dispatchEvent(new CustomEvent("bubble-native", { detail: { type } }))` with `type` `"pending"` (call `takePending()`) or `"tts-end"` (reading finished).
 
@@ -419,7 +420,7 @@ Free-tier numbers change often; confirm the current limits on each provider's pr
 - API routes using `firebase-admin` must declare `export const runtime = 'nodejs'`; it does not run on the Edge runtime.
 - Next.js 16 builds with Turbopack by default: use `@serwist/turbopack`, not the webpack-based `@serwist/next` (or pass `--webpack` to build).
 - Clients never write messages. The server writes both the user and assistant messages, which avoids a read-before-write race and keeps the rules simple.
-- The bubble WebView has a Service context: avoid `<select>`, JS dialogs and long-press selection in `/overlay`.
+- The bubble WebView has a Service context: avoid `<select>` and JS dialogs in `/overlay`. Long-press selection doesn't crash (tested on API 37) but is unreliable there and Android can't show its Copy/Share menu, so messages have a "Select text" action (`selectText` → `SelectTextActivity`) and `components/chat/SelectionMenu.tsx` shows our own Copy / Ask / Select more menu for any selection (also in the web app, placed below the selection there).
 - A stale service worker would stop web fixes reaching the bubble: navigations are network-first and `/api/*` is never cached.
 - iOS has no overlay API; iPhone users get the PWA only.
 

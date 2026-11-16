@@ -86,7 +86,19 @@ class JsBridge(private val service: OverlayService) {
             .put("screen", Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             .put("voice", voice)
             .put("speech", speech)
+            // selectText() below (app 0.6+).
+            .put("select", true)
             .toString()
+    }
+
+    /**
+     * Opens a message in a normal screen where its text can be selected (the
+     * bubble's window can't show Android's Copy / Share / Select all menu).
+     */
+    @JavascriptInterface
+    fun selectText(text: String, title: String) {
+        if (!trusted() || text.isBlank()) return
+        service.runOnMain { service.openSelectText(text, title) }
     }
 
     @JavascriptInterface

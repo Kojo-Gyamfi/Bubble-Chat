@@ -21,6 +21,8 @@ interface AndroidBridge {
   // a "bubble-native" {type: "pending"} event; speech end as {type: "tts-end"}.
   /** JSON NativeCapabilities. */
   getCapabilities?(): string;
+  /** App 0.6+: opens the text in a screen where Android's text selection works. */
+  selectText?(text: string, title: string): void;
   /** "camera" | "gallery": the panel hides while the system picker is open. */
   pickImage?(source: string): void;
   captureScreen?(): void;
@@ -39,6 +41,8 @@ export interface NativeCapabilities {
   screen: boolean;
   voice: boolean;
   speech: boolean;
+  /** selectText(): the bubble's own window can't show Android's Copy/Share menu (app 0.6+). */
+  select: boolean;
 }
 
 /** Things handed to the bubble from outside the page (share sheet, "Ask Bubble", pickers). */
@@ -64,7 +68,7 @@ export function onNativeEvent(listener: (event: NativeEvent) => void): () => voi
   return () => window.removeEventListener("bubble-native", handler);
 }
 
-const NO_CAPABILITIES: NativeCapabilities = { photo: false, file: false, screen: false, voice: false, speech: false };
+const NO_CAPABILITIES: NativeCapabilities = { photo: false, file: false, screen: false, voice: false, speech: false, select: false };
 
 declare global {
   interface Window {
@@ -144,6 +148,11 @@ export const bridge = {
 
   stopSpeaking(): void {
     call((a) => a.stopSpeaking?.(), undefined);
+  },
+
+  /** Opens a message for selecting part of it (bubble app 0.6+). False if this app can't. */
+  selectText(text: string, title: string): boolean {
+    return call((a) => (a.selectText ? (a.selectText(text, title), true) : false), false);
   },
 
   setAccount(account: string): void {

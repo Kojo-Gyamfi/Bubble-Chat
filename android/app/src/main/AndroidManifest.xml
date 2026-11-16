@@ -66,6 +66,16 @@
             android:taskAffinity=""
             android:theme="@style/Theme.BubbleChat.Invisible" />
 
+        <!-- "Select text" on a chat message: a normal screen, where Android's text selection
+             (handles + Copy/Share/Select all menu) works; the bubble's own window can't show it. -->
+        <activity
+            android:name=".SelectTextActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:label="@string/select_title"
+            android:taskAffinity=""
+            android:theme="@style/Theme.BubbleChat" />
+
         <!-- "Ask Bubble" in every app's text-selection menu, and Bubble Chat in the Share sheet (text, photos, documents). -->
         <activity
             android:name=".AskActivity"

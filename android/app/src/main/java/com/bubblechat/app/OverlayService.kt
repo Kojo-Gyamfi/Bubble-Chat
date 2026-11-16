@@ -839,6 +839,20 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
     }
 
     /** Opens the camera / photo picker / voice typing / capture consent over other apps. */
+    /** "Select text" on a message: shows it in SelectTextActivity, where Android's selection menu works. */
+    fun openSelectText(text: String, title: String) {
+        try {
+            // As in launchAction: start while the panel is visible, then move it out of the way.
+            startActivity(SelectTextActivity.intent(this, text, title))
+            collapse()
+            // The bubble would float over the text being selected; it's back when that screen closes.
+            bubble?.visibility = View.INVISIBLE
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not open the text selection screen", e)
+            receive(error = getString(R.string.action_failed))
+        }
+    }
+
     fun launchAction(kind: String) {
         try {
             // Start it while our panel is still visible (that's what allows a start from the
@@ -1125,6 +1139,11 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
                     .putExtra(EXTRA_FILE_NAME, file?.name)
                     .putExtra(EXTRA_FILE_TYPE, file?.mimeType),
             )
+        }
+
+        /** SelectTextActivity closed: show the bubble again (if the panel didn't reopen instead). */
+        fun selectTextClosed() {
+            instance?.bubble?.visibility = View.VISIBLE
         }
 
         /** Screen-capture consent arrived (from ActionActivity). */

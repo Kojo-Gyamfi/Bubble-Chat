@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Composer, type ComposerHandle, messagesLeftNotice, type PhotoSource } from "@/components/chat/Composer";
 import { EmptyState } from "@/components/chat/EmptyState";
 import { MessageList } from "@/components/chat/MessageList";
+import { SelectionMenu } from "@/components/chat/SelectionMenu";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { FullScreenSpinner } from "@/components/Spinner";
 import { IconButton, Notice } from "@/components/ui";
@@ -131,6 +132,14 @@ export function OverlayChat({ user }: { user: User }) {
       )}
 
       <MessageList messages={messages} loading={loading} compact empty={<EmptyState compact />} />
+      {native && (
+        <SelectionMenu
+          messages={messages}
+          canSelectMore={caps.select}
+          // "Ask": quote the selected words into the message box, ready for a question.
+          onAsk={(quote) => composer.current?.appendText(`“${quote}”\n`)}
+        />
+      )}
       <Composer
         ref={composer}
         onSend={handleSend}
