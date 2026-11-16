@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase/client";
 import { ChatRequestError, fetchMessagesLeft, newConversationId, newMessageId, streamChat } from "@/lib/chat/client";
 import type { Attachments } from "@/lib/chat/files";
 import type { ChatMessage, Conversation } from "@/lib/chat/schema";
+import { parseReplyStream, type ReplyStatus } from "@/lib/chat/status";
 
 export type ListenerError = "permission-denied" | "unknown";
 
@@ -117,6 +118,8 @@ export type PendingStatus = "streaming" | "error";
 
 export interface DisplayMessage extends ChatMessage {
   pending?: PendingStatus;
+  /** While streaming: what the AI is doing right now (e.g. searching the web). */
+  status?: ReplyStatus | null;
 }
 
 interface PendingMessage extends DisplayMessage {
@@ -206,10 +209,16 @@ export function useChat(user: User, conversationId: string | null) {
         setMessagesLeft(left);
       };
 
+      // The raw stream carries status markers; the message shows the text and the current status.
+      let raw = "";
       void streamChat(
         user,
         { conversationId: convId, userMessageId, assistantMessageId, message: text, image, file: file?.file },
-        (chunk) => patch(assistantMessageId, (p) => ({ ...p, content: p.content + chunk })),
+        (chunk) => {
+          raw += chunk;
+          const reply = parseReplyStream(raw);
+          patch(assistantMessageId, (p) => ({ ...p, content: reply.text, status: reply.status }));
+        },
         { signal: controller.signal, onMessagesLeft },
       )
         .then(({ stopped }) => {
@@ -218,6 +227,7 @@ export function useChat(user: User, conversationId: string | null) {
           patch(assistantMessageId, (p) => ({
             ...p,
             pending: undefined,
+            status: null,
             // Same note the server saves, so nothing jumps when the saved copy arrives.
             content: stopped ? `${p.content.trimEnd()}
 
@@ -229,6 +239,7 @@ _(stopped)_`.trimStart() : p.content,
           patch(assistantMessageId, (p) => ({
             ...p,
             pending: "error",
+            status: null,
             content: p.content || friendlyError(err),
           }));
         })

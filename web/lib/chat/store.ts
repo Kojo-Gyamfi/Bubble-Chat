@@ -147,9 +147,13 @@ export async function appendAssistantMessage(
   batch.update(convRef, { updatedAt: now, messageCount: FieldValue.increment(1) });
   if (usage) {
     const ids = usageDocIds(uid, usage.day);
+    const { webSearches = 0, webFetches = 0 } = usage.tokens;
     const tokens = {
       inputTokens: FieldValue.increment(usage.tokens.inputTokens),
       outputTokens: FieldValue.increment(usage.tokens.outputTokens),
+      // Web searches are billed per search: count them to keep an eye on cost.
+      ...(webSearches ? { webSearches: FieldValue.increment(webSearches) } : {}),
+      ...(webFetches ? { webFetches: FieldValue.increment(webFetches) } : {}),
     };
     batch.set(db.doc(ids.user), tokens, { merge: true });
     batch.set(db.doc(ids.global), tokens, { merge: true });

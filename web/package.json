@@ -16,6 +16,7 @@
   "dependencies": {
     "@ai-sdk/google": "^4.0.95",
     "@ai-sdk/groq": "^4.0.60",
+    "@anthropic-ai/sdk": "^1.8.0",
     "@serwist/turbopack": "^9.5.13",
     "ai": "^7.0.140",
     "firebase": "^13.0.0",

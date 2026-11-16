@@ -7,6 +7,8 @@ import { bridge, onNativeEvent } from "@/lib/bridge";
 export function speechText(markdown: string): string {
   return (
     markdown
+      // The "Sources" link list the server adds under web answers.
+      .replace(/\n+\*\*Sources\*\*\n(?:\d+\. .*(?:\n|$))+\s*$/, "")
       .replace(/```[\s\S]*?(```|$)/g, "\n(Code block omitted.)\n")
       .replace(/`([^`]+)`/g, "$1")
       .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")

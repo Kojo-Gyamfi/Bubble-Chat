@@ -9,7 +9,9 @@ import { buildMessages, MAX_CONTEXT_MESSAGES, MAX_OUTPUT_TOKENS, systemPrompt } 
 import { consumeRequest, dayKey, limitMessage } from "@/lib/usage";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// A reply that searches the web or reads a page can take 20-60 s (Claude's own
+// timeout is 90 s). Vercel Hobby allows up to 300 s; this still stops a hung call.
+export const maxDuration = 120;
 
 const NO_IMAGE_MODEL =
   "Photo and scanned-document questions are unavailable right now (the AI that reads them is busy). Try again later, or ask in text.";

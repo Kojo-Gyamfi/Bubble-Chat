@@ -27,8 +27,12 @@ const OFFLINE = "You're offline. Check your connection and try again.";
 const UNREACHABLE = "Couldn't reach Bubble. Check your connection and try again.";
 const TOO_SLOW = "The reply took too long. Please try again.";
 
-/** No bytes for this long ⇒ give up (the server itself stops at 60 s). */
-const STREAM_IDLE_TIMEOUT_MS = 60_000;
+/**
+ * No bytes for this long ⇒ give up. The server sends a status while the AI
+ * searches the web, so even slow replies send something well within this
+ * (the server itself stops at 120 s).
+ */
+const STREAM_IDLE_TIMEOUT_MS = 90_000;
 
 /** fetch with the user's ID token; throws ChatRequestError (with the server's message) on non-2xx. */
 async function authedFetch(user: User, url: string, init: RequestInit = {}): Promise<Response> {

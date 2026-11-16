@@ -19,7 +19,7 @@ Both clients also use the Firebase web SDK directly for login and live history; 
 ### Constraints
 
 - Android only for the overlay (iOS has no equivalent); iPhone users get the PWA.
-- $0: Firebase Spark, Vercel Hobby, free-tier LLM, sideloaded APK (no Play Store).
+- $0 except the LLM: Firebase Spark, Vercel Hobby, sideloaded APK (no Play Store). Claude (the default model) is paid; the free-tier Gemini/Groq models are the backup.
 - 10 users, so simplicity beats scale everywhere.
 - Most changes ship through the web app without rebuilding the APK.
 
@@ -29,7 +29,7 @@ Both clients also use the Firebase web SDK directly for login and live history; 
 | --- | --- |
 | Web | Next.js 16 App Router (Turbopack default), TypeScript, Tailwind v4, Serwist via `@serwist/turbopack` (PWA) |
 | Auth + data | Firebase Auth (Google), Firestore, firebase-admin on the server |
-| LLM | Vercel AI SDK (v7) with Google Gemini; automatic fallback to Groq on 429/errors |
+| LLM | Claude Opus 5.5 via `@anthropic-ai/sdk` (paid, default); free Gemini then Groq via the Vercel AI SDK (v7) as automatic fallback on 429/errors |
 | Hosting | Vercel Hobby |
 | Android | Kotlin, WindowManager overlay, WebView, foreground service |
 | Distribution | Signed APK on GitHub Releases |
@@ -150,7 +150,7 @@ Goal: real streamed answers from a free-tier LLM, with every request tied to an 
 2. `POST /api/chat` verifies the token with `firebase-admin` (`verifyIdToken(token, true)` so revoked devices are rejected) and checks the user is allowed (claim or allowlist).
 3. In **one transaction, before calling the LLM**: check and increment `usage/{uid}_{today}` against the per-user cap and `usage/global_{today}` against the global cap. Aborted or failed streams still count, and parallel requests can't overshoot.
 4. Server writes the user message (from the request body, under the client's `userMessageId`), then loads the last N messages of the conversation (admin SDK), builds the prompt, and calls the LLM with streaming. Because the server wrote the user message itself, there's no race with a client write.
-5. Response is streamed back as plain text chunks (`ReadableStream`, `Content-Type: text/plain; charset=utf-8`), which works in both browsers and the Android WebView without SSE quirks.
+5. Response is streamed back as plain text chunks (`ReadableStream`, `Content-Type: text/plain; charset=utf-8`), which works in both browsers and the Android WebView without SSE quirks. While the model searches the web or reads a page, the stream carries status markers (`\u001E<status>\u001F`, `lib/chat/status.ts`: `working` / `searching` / `reading`); the client strips them and shows "Searching the web…" etc. They are never saved.
 6. The server streams the reply and persists it in `after()` from `next/server`: the assistant message (under `assistantMessageId`), `updatedAt`, `messageCount` and token counts in one batch. Clients never write messages. **Stop button:** when the client disconnects (Stop, closed page, dropped connection) the model call is aborted and the partial reply is saved with a `_(stopped)_` note. The response carries `X-Messages-Left`; `GET /api/usage` returns it for the "N messages left today" hint.
 7. **Photos:** the body may carry `image: { mediaType, data (base64, client-resized ≤1280 px), thumbnail (data URL ≤60 KB) }`. Only the thumbnail is stored (Firebase Storage needs Blaze); later turns get a "[photo attached earlier]" note instead of the image. Photo requests use only image-capable providers (Gemini), else 503.
 8. **Documents:** the body may carry `file: { name, mediaType (pdf | docx | text/plain), data (base64, ≤3 MB) }` (one attachment per message: photo *or* file). The server extracts the text (`lib/chat/documents.ts`: `unpdf` for PDF, `mammoth` for Word, UTF-8 for text/code; capped at 60k chars). Gemini gets PDFs as the original file, and everything else (and Groq) gets the text. The message doc stores only `file: {name, mediaType, size}`; the text goes to `conversations/{id}/attachments/{msgId}` (server-read only in practice) and is re-sent with history for follow-ups (newest first, 60k-char budget). Scanned PDFs with no text need Gemini.
@@ -167,12 +167,14 @@ export interface LlmProvider {
 }
 ```
 
-- **Model chain** (`lib/llm.ts`): an ordered list of `provider:model[@reasoning]`, fastest first (by measured time to first word), from `LLM_CHAIN` or `DEFAULT_CHAIN` (Gemini 3.5 Flash-Lite, 2.5 Flash, 3.1 Flash-Lite, Groq gpt-oss-120b, Gemini 3.6 Flash, 3.8 Flash, then Groq qwen3.8-27b, gpt-oss-20b). Free limits are **per model** (e.g. Gemini Flash models get only ~20 requests/day on the free tier), so the chain adds them up. A model failing before its first chunk (10 s first-chunk timeout) falls through to the next and is skipped for 5 minutes after a timeout/5xx. A slow one (no first word after 3 s, `HEDGE_AFTER_MS`) gets the next model started alongside it; the first to answer wins, the other is aborted, and a slow loser is skipped for 5 minutes. On a 429 it's skipped on later requests until it resets, using the provider's own hint (Gemini `RetryInfo.retryDelay`, Groq "try again in…", `Retry-After`). `LLM_PROVIDER=groq` keeps only the Groq models; `mock` uses canned replies. `LLM_MODEL`/`GROQ_MODEL` are no longer used. Don't create extra free accounts/keys to multiply quota (against the providers' terms); add models or other providers instead.
+- **Claude first** (`claude:claude-opus-5-5`, `ANTHROPIC_API_KEY`, official `@anthropic-ai/sdk` in `anthropicProvider`): effort `medium` (`@low`/`@high` in the chain change it), `max_tokens` = output cap + 6,144 for thinking and search filtering (Opus 5.5 always thinks), prompt caching, server-side refusal fallback (`fallbacks: "default"`), reads photos and PDFs. It gets 10 s before a backup is hedged in (`hedgeAfterMs`) and gives up if the stream is silent for 25 s before its first word. A bad key or "credit balance too low" skips it for 1 h. Leaving the key unset drops it from the chain.
+- **Web search and reading links** (Claude only): `WEB_TOOLS` in `lib/llm.ts` adds Anthropic's server-side `web_search_20260209` and `web_fetch_20260209` (max 3 each per message, pages cut at 20k tokens); Claude decides when to use them (`WEB_ACCESS_PROMPT` in `lib/prompt.ts`). While it does, the provider yields `{ status }` chunks: the chain treats a model that sent one as busy (no hedging, not sidelined as slow) and passes the status to the client. Short text blocks are held back until we see whether a tool call follows (then they were progress notes and are dropped). Cited or opened pages (or else the top 3 search results) are appended as a **Sources** list, which read-aloud skips. `pause_turn` is resumed up to twice. If the account has web tools turned off (HTTP 400 naming them), Claude answers without them for an hour. The free fallbacks get `NO_WEB_ACCESS_PROMPT` so they say they can't open links. Searches and fetches are counted in `usage/*.webSearches` / `webFetches`. Cost: a web answer uses ~25–40k input tokens (≈10–20¢ on Opus 5.5) versus ~2–4¢ for a normal reply; the tool definitions add ~7k tokens to every request, mostly served from the prompt cache. `LLM_PROVIDER=mock` fakes a search/read status when the message contains "search" or a link.
+- **Model chain** (`lib/llm.ts`): an ordered list of `provider:model[@reasoning]` (provider `claude`, `gemini` or `groq`) from `LLM_CHAIN` or `DEFAULT_CHAIN` (Claude Opus 5.5, then the free models fastest first by measured time to first word: Gemini 3.5 Flash-Lite, 2.5 Flash, 3.1 Flash-Lite, Groq gpt-oss-120b, Gemini 3.6 Flash, 3.8 Flash, then Groq qwen3.8-27b, gpt-oss-20b). Free limits are **per model** (e.g. Gemini Flash models get only ~20 requests/day on the free tier), so the chain adds them up. A model failing before its first chunk (10 s first-chunk timeout) falls through to the next and is skipped for 5 minutes after a timeout/5xx. A slow one (no first word after 3 s, `HEDGE_AFTER_MS`) gets the next model started alongside it; the first to answer wins, the other is aborted, and a slow loser is skipped for 5 minutes. On a 429 it's skipped on later requests until it resets, using the provider's own hint (Gemini `RetryInfo.retryDelay`, Groq "try again in…", `Retry-After`). `LLM_PROVIDER=groq` keeps only the Groq models; `mock` uses canned replies. `LLM_MODEL`/`GROQ_MODEL` are no longer used. Don't create extra free accounts/keys to multiply quota (against the providers' terms); add models or other providers instead.
 - The model that answered is saved on the assistant message (`model`), and counted per day in `usage/global_{day}.models`.
 - Free-tier Gemini prompts may be used by Google for training (except EU/UK/CH). Tell your users.
 - Use the Vercel AI SDK (`ai`, `@ai-sdk/google`, `@ai-sdk/groq`) rather than hand-rolling fetch; it handles streaming and provider differences. If it adds friction, fall back to the provider's own SDK.
 
-Set `maxDuration = 60` on the route. Vercel Hobby with Fluid Compute allows up to 300 s, but 60 s is a deliberate guard against a hung model.
+Set `maxDuration = 120` on the route: a web-search answer can take 20–60 s (Claude's own client timeout is 90 s, which leaves time to fall back). Vercel Hobby with Fluid Compute allows up to 300 s; 120 s is a deliberate guard against a hung model. The client gives up after 90 s without any bytes (statuses count).
 
 ### Limits (keep the free tiers safe)
 
@@ -367,10 +369,11 @@ FIREBASE_SERVICE_ACCOUNT_BASE64=      # base64 of the service-account JSON
 LLM_PROVIDER=gemini                   # gemini | groq (gemini auto-falls back to groq on 429)
 LLM_MODEL=                            # current free-tier Gemini Flash model ID
 GROQ_MODEL=                           # current Groq Llama model ID
+ANTHROPIC_API_KEY=                    # Claude, the paid default model
 GOOGLE_GENERATIVE_AI_API_KEY=
 GROQ_API_KEY=
 DAILY_REQUEST_LIMIT=100               # per user
-GLOBAL_DAILY_REQUEST_LIMIT=1000       # all users; keep below the model chain's free requests/day (~1,060 on Gemini)
+GLOBAL_DAILY_REQUEST_LIMIT=1000       # all users; also caps Claude spend (~2.4¢/message ≈ $24/day max)
 NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 ```
 
@@ -379,7 +382,8 @@ NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 | Service | Plan | Used for | Watch out for |
 | --- | --- | --- | --- |
 | Firebase | Spark | Auth + Firestore | Do not enable Blaze; stay under 50k reads / 20k writes per day |
-| Vercel | Hobby | Next.js hosting | Non-commercial use only; 300 s function limit (we cap at 60 s) |
+| Vercel | Hobby | Next.js hosting | Non-commercial use only; 300 s function limit (we cap at 120 s) |
+| Anthropic (Claude Console) | Paid (prepaid credit) | Claude, the default model | Set a monthly spend limit; with no credit left the app falls back to the free models |
 | Google AI Studio | Free | Gemini API | Per-minute and per-day caps were cut during 2026 (reports range 100 to 1,500 RPD for Flash; Pro not free). Read your project's real limits in AI Studio and set `GLOBAL_DAILY_REQUEST_LIMIT` below them |
 | Groq | Free | Fallback LLM | Lower daily token quota |
 | GitHub | Free | Repo + APK releases | Keep the keystore and service account out of git |
@@ -409,7 +413,7 @@ Free-tier numbers change often; confirm the current limits on each provider's pr
 - Android 14+ kills foreground services without a declared type; `specialUse` with the manifest property is required.
 - Xiaomi/Huawei/Oppo need "Display pop-up windows while running in the background" and autostart permissions; add a help screen listing them rather than trying to detect each OEM.
 - `firebase-admin` must be imported only in server files; Next.js will try to bundle it client-side otherwise. Keep `lib/firebase/admin.ts` with `import 'server-only'`.
-- Vercel Hobby functions can run up to 300 s (Fluid Compute), but we set `maxDuration = 60` and cap output tokens so a slow model fails fast.
+- Vercel Hobby functions can run up to 300 s (Fluid Compute), but we set `maxDuration = 120` (web searches) and cap output tokens so a slow model fails fast.
 - API routes using `firebase-admin` must declare `export const runtime = 'nodejs'`; it does not run on the Edge runtime.
 - Next.js 16 builds with Turbopack by default: use `@serwist/turbopack`, not the webpack-based `@serwist/next` (or pass `--webpack` to build).
 - Clients never write messages. The server writes both the user and assistant messages, which avoids a read-before-write race and keeps the rules simple.

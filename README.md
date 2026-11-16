@@ -36,13 +36,22 @@ See [CLAUDE.md](CLAUDE.md) for the full plan.
    npm run allow -- add you@gmail.com
    ```
 
-## AI provider keys (free)
+## AI provider keys
 
-- **Gemini** (default): create a key at [Google AI Studio](https://aistudio.google.com/apikey) →
+- **Claude** (default, paid): create a key at [console.anthropic.com](https://console.anthropic.com/settings/keys) →
+  `ANTHROPIC_API_KEY`. Claude Opus 5.5 answers first; the free models below take over when it
+  fails, is rate-limited or the account is out of credit. Roughly 2.4¢ per message, so
+  `GLOBAL_DAILY_REQUEST_LIMIT` (1,000) also caps spend at about $24/day. Setting a monthly spend
+  limit in the Claude Console is a good idea. Without the key the app runs on the free models only.
+  Claude can also **search the web** and **read links** you send (Anthropic's web search / web
+  fetch tools, max 3 each per message). A web answer costs more (≈10–20¢) and takes ~5–20 s; the
+  app shows "Searching the web…" / "Reading the page…" meanwhile and lists sources under the answer.
+  Daily searches are counted in Firestore `usage/global_{day}.webSearches`.
+- **Gemini** (free backup): create a key at [Google AI Studio](https://aistudio.google.com/apikey) →
   `GOOGLE_GENERATIVE_AI_API_KEY`. Free limits are per model, and the default model chain adds
   them up (≈1,060 requests/day in Oct 2026). Check each model's requests/day in AI Studio →
   Rate limits and keep `GLOBAL_DAILY_REQUEST_LIMIT` (default 1,000) below the total.
-- **Groq** (automatic fallback when Gemini is rate-limited or down): key from
+- **Groq** (free backup when Gemini is rate-limited or down): key from
   [console.groq.com](https://console.groq.com/keys) → `GROQ_API_KEY`.
 - No keys yet? `LLM_PROVIDER=mock` streams canned replies.
 

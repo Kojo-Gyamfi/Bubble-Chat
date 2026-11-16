@@ -4,6 +4,7 @@ const pending: Promise<unknown>[] = [];
 vi.mock("next/server", () => ({ after: (p: Promise<unknown>) => pending.push(p) }));
 
 const { streamAndPersist } = await import("@/lib/chat/stream");
+const { encodeStatus, parseReplyStream } = await import("@/lib/chat/status");
 
 async function* chunks(parts: string[], failAt?: number) {
   for (const [i, part] of parts.entries()) {
@@ -41,6 +42,33 @@ describe("streamAndPersist", () => {
     expect(await res.text()).toContain("Partial");
     await Promise.all(pending);
     expect(persist).toHaveBeenCalledWith(expect.stringMatching(/^Partial[\s\S]*interrupted/));
+  });
+
+  it("sends statuses (e.g. searching the web) as markers but never saves them", async () => {
+    async function* source() {
+      yield { status: "searching" as const };
+      yield "Answer";
+    }
+    const persist = vi.fn(async () => {});
+    const res = await streamAndPersist(source(), persist);
+    const body = await res.text();
+    expect(body).toBe(`${encodeStatus("searching")}Answer`);
+    expect(parseReplyStream(body)).toEqual({ text: "Answer", status: null });
+    await Promise.all(pending);
+    expect(persist).toHaveBeenCalledWith("Answer");
+  });
+
+  it("says the AI is unavailable when it fails after a status but before any text", async () => {
+    async function* source() {
+      yield { status: "searching" as const };
+      throw new Error("every model failed");
+    }
+    const persist = vi.fn(async () => {});
+    const res = await streamAndPersist(source(), persist);
+    expect(parseReplyStream(await res.text()).text).toMatch(/unavailable.*try again/i);
+    await Promise.all(pending);
+    expect(persist).toHaveBeenCalledWith(expect.stringMatching(/unavailable/));
+    expect(persist).not.toHaveBeenCalledWith(expect.stringContaining("interrupted"));
   });
 
   it("persists a placeholder instead of an empty reply", async () => {

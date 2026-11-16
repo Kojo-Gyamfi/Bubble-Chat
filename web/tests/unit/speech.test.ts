@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { speechChunks, speechText } from "@/lib/speech";
 
 describe("speechText", () => {
+  it("doesn't read out the Sources list under a web answer", () => {
+    const answer = "Bitcoin is about $64,500.\n\n**Sources**\n1. [CoinGecko](<https://coingecko.test/>)\n2. [CMC](<https://cmc.test/>)";
+    expect(speechText(answer)).toBe("Bitcoin is about $64,500.");
+  });
+
   it("strips Markdown so it reads naturally", () => {
     expect(speechText("## Title\n**Bold** and *italic* with `code` and [a link](https://x.dev).")).toBe(
       "Title\nBold and italic with code and a link.",

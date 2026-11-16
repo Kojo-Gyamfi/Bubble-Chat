@@ -1,11 +1,15 @@
 import "server-only";
 
 import { after } from "next/server";
+import { encodeStatus, type ReplyStatus } from "@/lib/chat/status";
 
 const INTERRUPTED_NOTE = "\n\n_(response interrupted)_";
 const STOPPED_NOTE = "\n\n_(stopped)_";
 const EMPTY_NOTE = "_(no response; try rephrasing)_";
 const UNAVAILABLE = "The AI service is busy or unavailable right now. Please try again in a minute.";
+
+/** Reply text, or a status update (e.g. searching the web) that is shown but never saved. */
+export type ReplyChunk = string | { status: ReplyStatus };
 
 export interface StreamOptions {
   /**
@@ -22,14 +26,16 @@ export interface StreamOptions {
  * Streams `source` to the client as plain text and calls `persist` with the
  * text once the source ends, and `after()` keeps the function alive until it
  * is saved. If the client disconnects, `stop` is aborted so generation ends
- * early and the partial reply is saved.
+ * early and the partial reply is saved. Status updates go to the client as
+ * markers (see lib/chat/status.ts) and are not saved.
  *
  * Waits for the first chunk before responding, so a reply that fails outright
  * (every provider down or rate-limited) becomes a 503 with a readable message
- * instead of a broken stream.
+ * instead of a broken stream. If it fails after a status but before any text,
+ * the same message is streamed (and saved) instead.
  */
 export async function streamAndPersist(
-  source: AsyncIterable<string>,
+  source: AsyncIterable<ReplyChunk>,
   persist: (text: string) => Promise<void>,
   { stop, headers }: StreamOptions = {},
 ): Promise<Response> {
@@ -38,7 +44,7 @@ export async function streamAndPersist(
     persist(text).catch((err) => console.error("Failed to save assistant message", err));
 
   const iterator = source[Symbol.asyncIterator]();
-  let first: IteratorResult<string>;
+  let first: IteratorResult<ReplyChunk>;
   try {
     first = await iterator.next();
   } catch (err) {
@@ -79,8 +85,12 @@ export async function streamAndPersist(
     let text = "";
     try {
       for (let next = first; !next.done; next = await iterator.next()) {
-        text += next.value;
-        send(next.value);
+        if (typeof next.value === "string") {
+          text += next.value;
+          send(next.value);
+        } else {
+          send(encodeStatus(next.value.status));
+        }
         if (stopped()) {
           await iterator.return?.();
           break;
@@ -89,8 +99,10 @@ export async function streamAndPersist(
     } catch (err) {
       if (!stopped()) {
         console.error("Reply generation failed mid-stream", err);
-        text += INTERRUPTED_NOTE;
-        send(INTERRUPTED_NOTE);
+        // Nothing written yet (only a status like "searching"): say the AI is unavailable.
+        const note = text.trim() ? INTERRUPTED_NOTE : `_${UNAVAILABLE}_`;
+        text += note;
+        send(note);
       }
     }
     if (stopped()) text = `${text.trimEnd()}${STOPPED_NOTE}`.trimStart();

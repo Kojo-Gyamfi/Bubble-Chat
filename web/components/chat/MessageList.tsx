@@ -6,6 +6,7 @@ import { FileChip } from "@/components/chat/FileChip";
 import { Markdown } from "@/components/chat/Markdown";
 import { CopyButton, IconButton } from "@/components/ui";
 import type { DisplayMessage } from "@/lib/chat/hooks";
+import { type ReplyStatus, STATUS_LABEL } from "@/lib/chat/status";
 import { canSpeak, speak, stopSpeaking, useSpeakingId } from "@/lib/speech";
 
 const STICK_THRESHOLD_PX = 80;
@@ -138,22 +139,30 @@ function MessageItem({ message, compact }: { message: DisplayMessage; compact: b
   }
 
   if (message.pending === "streaming" && !message.content) {
-    return (
-      <div className="py-1.5" role="status" aria-label="Assistant is thinking">
-        <span className="block size-3.5 rounded-full bg-foreground animate-thinking" />
-      </div>
-    );
+    return <ReplyStatusLine status={message.status} />;
   }
 
   return (
     <div className="group">
       <Markdown>{message.content}</Markdown>
+      {message.pending === "streaming" && message.status && <ReplyStatusLine status={message.status} />}
       {!message.pending && (
         <div className="mt-1.5 -ml-1.5 flex items-center gap-0.5">
           <CopyButton text={message.content} />
           <ReadAloudButton id={message.id} text={message.content} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** The "thinking" dot, with what the AI is doing (e.g. "Searching the web…") when it says. */
+function ReplyStatusLine({ status }: { status?: ReplyStatus | null }) {
+  const label = status ? STATUS_LABEL[status] : null;
+  return (
+    <div className="flex items-center gap-2.5 py-1.5" role="status" aria-label={label ?? "Assistant is thinking"}>
+      <span className="block size-3.5 shrink-0 rounded-full bg-foreground animate-thinking" />
+      {label && <span className="text-sm text-muted-foreground animate-fade-up">{label}</span>}
     </div>
   );
 }
