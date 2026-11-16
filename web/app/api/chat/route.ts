@@ -4,14 +4,24 @@ import { readDocument } from "@/lib/chat/documents";
 import { chatRequestSchema } from "@/lib/chat/schema";
 import { appendAssistantMessage, appendUserMessage, loadHistory } from "@/lib/chat/store";
 import { streamAndPersist } from "@/lib/chat/stream";
+import { renderFile } from "@/lib/files/render";
+import { saveFile } from "@/lib/files/store";
+import { withFiles } from "@/lib/files/stream";
 import { type LlmUsage, providerChain, streamWithFallback } from "@/lib/llm";
-import { buildMessages, MAX_CONTEXT_MESSAGES, MAX_OUTPUT_TOKENS, systemPrompt } from "@/lib/prompt";
+import {
+  asksForFile,
+  buildMessages,
+  MAX_CONTEXT_MESSAGES,
+  MAX_FILE_OUTPUT_TOKENS,
+  MAX_OUTPUT_TOKENS,
+  systemPrompt,
+} from "@/lib/prompt";
 import { consumeRequest, dayKey, limitMessage } from "@/lib/usage";
 
 export const runtime = "nodejs";
-// A reply that searches the web or reads a page can take 20-60 s (Claude's own
-// timeout is 90 s). Vercel Hobby allows up to 300 s; this still stops a hung call.
-export const maxDuration = 120;
+// A reply that searches the web or writes a whole document can take 20-120 s
+// (Claude's own timeout is 240 s). 300 s is the Vercel Hobby maximum.
+export const maxDuration = 300;
 
 const NO_IMAGE_MODEL =
   "Photo and scanned-document questions are unavailable right now (the AI that reads them is busy). Try again later, or ask in text.";
@@ -62,7 +72,8 @@ export async function POST(req: Request) {
 
     let usage: LlmUsage | undefined;
     let model: string | undefined;
-    const reply = streamWithFallback(
+    const origin = new URL(req.url).origin;
+    const replyText = streamWithFallback(
       chain,
       buildMessages(
         history,
@@ -72,12 +83,21 @@ export async function POST(req: Request) {
       ),
       {
         system: systemPrompt(),
-        maxTokens: MAX_OUTPUT_TOKENS,
+        // Asking for a Word/PDF/Excel/PowerPoint file: room for a whole document.
+        maxTokens: asksForFile(message) ? MAX_FILE_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS,
         onUsage: (u) => (usage = u),
         onModel: (name) => (model = name),
         abortSignal: stop.signal,
       },
     );
+    // Files the model writes (<bubble-file> blocks) are built, saved and linked here.
+    const reply = withFiles(replyText, {
+      signal: stop.signal,
+      make: async ({ format, name, content }) => {
+        const { data } = await renderFile(format, name, content);
+        return saveFile({ uid: user.uid, conversationId, origin }, { format, name, data });
+      },
+    });
 
     return await streamAndPersist(
       reply,

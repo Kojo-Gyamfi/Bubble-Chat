@@ -47,6 +47,9 @@ See [CLAUDE.md](CLAUDE.md) for the full plan.
   fetch tools, max 3 each per message). A web answer costs more (≈10–20¢) and takes ~5–20 s; the
   app shows "Searching the web…" / "Reading the page…" meanwhile and lists sources under the answer.
   Daily searches are counted in Firestore `usage/global_{day}.webSearches`.
+- **Files:** ask for a Word document, PDF, Excel spreadsheet or PowerPoint ("put this in a Word doc",
+  "make slides about…") and the reply comes with a download card. Files are made by the app from the
+  AI's answer (any model, no extra cost), stored with the conversation in Firestore, and deleted with it.
 - **Gemini** (free backup): create a key at [Google AI Studio](https://aistudio.google.com/apikey) →
   `GOOGLE_GENERATIVE_AI_API_KEY`. Free limits are per model, and the default model chain adds
   them up (≈1,060 requests/day in Oct 2026). Check each model's requests/day in AI Studio →

@@ -5,6 +5,16 @@ const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["untreacherous-leontine-nonpejoratively.ngrok-free.dev"],
+  experimental: {
+    agentUpgrade: "security",
+  },
+  // Word/PDF/Excel/PowerPoint builders (lib/files): run from node_modules as-is
+  // rather than bundled (pdfkit, exceljs and pptxgenjs read their own files).
+  serverExternalPackages: ["pdfmake", "pdfkit", "exceljs", "pptxgenjs"],
+  // The PDF font files are read at runtime, so ship them with the chat function.
+  outputFileTracingIncludes: {
+    "/api/chat": ["./node_modules/dejavu-fonts-ttf/ttf/DejaVuSans*.ttf"],
+  },
   // cacheComponents is off on purpose: the app is client-rendered on top of
   // Firebase, and the Serwist Turbopack route relies on segment config
   // (`dynamic`, `revalidate`) that cacheComponents rejects.

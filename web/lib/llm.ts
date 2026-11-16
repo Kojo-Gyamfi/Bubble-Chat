@@ -79,7 +79,8 @@ export function aiSdkProvider(
         maxRetries: 0,
         // A healthy model starts in 1-6 s; give up on a stuck one quickly and
         // fall back. Stay well inside the route's maxDuration.
-        timeout: { firstChunkMs: 10_000, totalMs: 50_000 },
+        // A whole document (when a file is asked for) can take a minute or two.
+        timeout: { firstChunkMs: 10_000, totalMs: 150_000 },
         // Errors arrive as stream parts (below) and streamWithFallback logs one line;
         // the SDK's default would also dump the whole request/response.
         onError: () => {},
@@ -522,9 +523,9 @@ function buildProvider(spec: ModelSpec): LlmProvider | null {
   if (spec.provider === "claude") {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return null;
-    // No retries: a failing model falls back to the next one instead. 90 s allows for web searches
-    // and still leaves the route (maxDuration 120 s) time to fall back.
-    claudeClient ??= new Anthropic({ apiKey, maxRetries: 0, timeout: 90_000 });
+    // No retries: a failing model falls back to the next one instead. 240 s allows for web searches
+    // and whole documents, and still leaves the route (maxDuration 300 s) time to fall back.
+    claudeClient ??= new Anthropic({ apiKey, maxRetries: 0, timeout: 240_000 });
     return anthropicProvider(name, spec.model, claudeEffort(spec.reasoning), claudeClient);
   }
   if (spec.provider === "gemini") {

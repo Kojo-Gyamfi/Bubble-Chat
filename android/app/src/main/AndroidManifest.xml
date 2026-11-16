@@ -110,6 +110,12 @@
                 android:value="Floating chat assistant bubble the user can open over other apps" />
         </service>
 
+        <!-- Watchdog: brings the bubble back if the phone (not the user) closed it. -->
+        <service
+            android:name=".KeepAliveJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

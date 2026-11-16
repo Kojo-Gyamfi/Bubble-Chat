@@ -3,12 +3,13 @@
  * the web. Sent inside the plain-text reply stream as a small marker that is
  * never saved: the server writes it, the client strips it and shows a label.
  */
-export type ReplyStatus = "working" | "searching" | "reading";
+export type ReplyStatus = "working" | "searching" | "reading" | "writing";
 
 export const STATUS_LABEL: Record<ReplyStatus, string> = {
   working: "Looking it up…",
   searching: "Searching the web…",
   reading: "Reading the page…",
+  writing: "Creating your file…",
 };
 
 // ASCII record / unit separators: never part of normal text.

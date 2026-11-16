@@ -29,6 +29,11 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean(KEY_ENABLED, false)
         set(value) = prefs.edit { putBoolean(KEY_ENABLED, value) }
 
+    /** When the bubble last started (ms since epoch); the keep-alive job ignores exits before it. */
+    var bubbleStartedAt: Long
+        get() = prefs.getLong(KEY_STARTED_AT, 0L)
+        set(value) = prefs.edit { putLong(KEY_STARTED_AT, value) }
+
     /** Which screen edge the bubble is docked to. */
     var bubbleOnRight: Boolean
         get() = prefs.getBoolean(KEY_RIGHT, true)
@@ -77,6 +82,7 @@ class Prefs(context: Context) {
         const val KEY_PANEL_W = "panel_w"
         const val KEY_PANEL_H = "panel_h"
         const val KEY_ENABLED = "bubble_enabled"
+        const val KEY_STARTED_AT = "bubble_started_at"
         const val KEY_RIGHT = "bubble_on_right"
         const val KEY_Y = "bubble_y_fraction"
     }

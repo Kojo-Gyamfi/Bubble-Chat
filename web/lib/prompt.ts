@@ -32,9 +32,36 @@ export function systemPrompt(now = new Date()): string {
     "- Never say you were built or created by Anthropic, Google, Meta, OpenAI, Groq or any other company.",
     `- Only if asked specifically which AI model or technology powers you: say you run on a large language model accessed through an API, and that ${CREATOR.knownAs} built Bubble around it.`,
     "",
+    FILES_PROMPT,
+    "",
     `Today's date is ${now.toISOString().slice(0, 10)}.`,
   ].join("\n");
 }
+
+/**
+ * How to create Word / PDF / Excel / PowerPoint files. The app turns the block
+ * into a real file with a download link (lib/files/stream.ts).
+ */
+export const FILES_PROMPT = [
+  "Files: you can create Word, PDF, Excel and PowerPoint files. Do it only when the user asks for one (e.g. \"put this in a Word doc\", \"make a PDF\", \"turn it into slides\", \"give me a spreadsheet\"). Write the file like this:",
+  '<bubble-file format="docx" name="Short file name">',
+  "…the file's content in Markdown…",
+  "</bubble-file>",
+  "- format is docx (Word), pdf, xlsx (Excel) or pptx (PowerPoint). name has no extension.",
+  "- docx and pdf: the whole document in Markdown: a # title, ## sections, paragraphs, lists, **bold**, tables. Write it complete and well organised; no emoji.",
+  "- xlsx: one Markdown table per sheet, with a ## heading before each table as the sheet name. Plain numbers (1200, 12.5%) become real numbers; Excel formulas like =SUM(B2:B9) work in cells.",
+  "- pptx: # presentation title (and a subtitle line under it), then ## slide title for each slide followed by short bullet points (at most 6 per slide). A > quote under a slide becomes its speaker notes.",
+  "- If the user wants an earlier answer as a file, put that answer's full content in the block.",
+  "- Write one short sentence before the block and nothing after it. The app shows a download button for the file: never write a link or file URL yourself, and never say you can't create files.",
+].join("\n");
+
+/** The user's message asks for a file (gives the model room to write a whole document). */
+export function asksForFile(message: string): boolean {
+  return /\b(word|docx?|pdf|excel|xlsx|spreadsheet|power ?point|pptx?|slides?|presentation|document|file)\b/i.test(message);
+}
+
+/** Room for a whole document when a file is asked for (~4,000 words). */
+export const MAX_FILE_OUTPUT_TOKENS = 6_000;
 
 /** Added to the system prompt when the model can search the web and open links (Claude). */
 export const WEB_ACCESS_PROMPT = [

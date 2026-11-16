@@ -2,9 +2,11 @@
 
 import { AlertCircle, ArrowDown, Square, Volume2 } from "lucide-react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { FileCard } from "@/components/chat/FileCard";
 import { FileChip } from "@/components/chat/FileChip";
 import { Markdown } from "@/components/chat/Markdown";
 import { CopyButton, IconButton } from "@/components/ui";
+import { splitFileBlocks } from "@/lib/chat/file-blocks";
 import type { DisplayMessage } from "@/lib/chat/hooks";
 import { type ReplyStatus, STATUS_LABEL } from "@/lib/chat/status";
 import { canSpeak, speak, stopSpeaking, useSpeakingId } from "@/lib/speech";
@@ -142,13 +144,23 @@ function MessageItem({ message, compact }: { message: DisplayMessage; compact: b
     return <ReplyStatusLine status={message.status} />;
   }
 
+  const parts = splitFileBlocks(message.content);
+  // Copying a reply with a file copies the file's content too.
+  const copyText = parts.map((p) => (p.type === "text" ? p.text : `\n\n${p.content}\n\n`)).join("").trim();
+
   return (
     <div className="group">
-      <Markdown>{message.content}</Markdown>
+      {parts.map((part, i) =>
+        part.type === "text" ? (
+          part.text.trim() && <Markdown key={i}>{part.text}</Markdown>
+        ) : (
+          <FileCard key={i} file={part} />
+        ),
+      )}
       {message.pending === "streaming" && message.status && <ReplyStatusLine status={message.status} />}
       {!message.pending && (
         <div className="mt-1.5 -ml-1.5 flex items-center gap-0.5">
-          <CopyButton text={message.content} />
+          <CopyButton text={copyText} />
           <ReadAloudButton id={message.id} text={message.content} />
         </div>
       )}

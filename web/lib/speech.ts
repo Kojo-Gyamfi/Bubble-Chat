@@ -2,11 +2,12 @@
 
 import { useSyncExternalStore } from "react";
 import { bridge, onNativeEvent } from "@/lib/bridge";
+import { replaceFileBlocks } from "@/lib/chat/file-blocks";
 
 /** Markdown answer → plain sentences for text-to-speech. Code isn't read out. */
 export function speechText(markdown: string): string {
   return (
-    markdown
+    replaceFileBlocks(markdown, () => "")
       // The "Sources" link list the server adds under web answers.
       .replace(/\n+\*\*Sources\*\*\n(?:\d+\. .*(?:\n|$))+\s*$/, "")
       .replace(/```[\s\S]*?(```|$)/g, "\n(Code block omitted.)\n")

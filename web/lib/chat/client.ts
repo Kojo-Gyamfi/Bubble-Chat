@@ -30,7 +30,7 @@ const TOO_SLOW = "The reply took too long. Please try again.";
 /**
  * No bytes for this long ⇒ give up. The server sends a status while the AI
  * searches the web, so even slow replies send something well within this
- * (the server itself stops at 120 s).
+ * (the server itself stops at 300 s).
  */
 const STREAM_IDLE_TIMEOUT_MS = 90_000;
 

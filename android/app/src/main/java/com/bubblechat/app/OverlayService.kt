@@ -81,6 +81,9 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
     private var webView: WebView? = null
     private var pageFailed = false
 
+    /** Made it to the foreground (so a later unexpected stop is worth a restart). */
+    private var startedOk = false
+
     /** True while the WebView shows our own site; JsBridge refuses calls otherwise. */
     @Volatile
     var pageTrusted = false
@@ -113,9 +116,13 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         // startForeground() must always be called after startForegroundService(),
         // even if we're about to stop.
         if (!goForeground() || !canDraw) {
+            // Android refused a restart from the background: offer a one-tap way back.
+            if (canDraw && prefs.bubbleEnabled) KeepAliveJob.showRestoreNotification(this)
             stopSelf()
             return
         }
+        startedOk = true
+        prefs.bubbleStartedAt = System.currentTimeMillis()
         createWebView()
         watchNetwork()
     }
@@ -128,6 +135,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
         when (intent?.action) {
             ACTION_STOP -> {
                 prefs.bubbleEnabled = false
+                KeepAliveJob.cancel(this)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -160,12 +168,28 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             )
             // null intent = system restart after the process was killed (START_STICKY).
         }
+        if (startedOk && prefs.bubbleEnabled) {
+            // Watch over the bubble from now on (also after reboots), and clear any "tap to restore".
+            KeepAliveJob.schedule(this)
+            KeepAliveJob.hideRestoreNotification(this)
+        }
         return START_STICKY
+    }
+
+    /**
+     * The app was swiped out of Recents. The service normally keeps running, but
+     * some phones kill the whole app then: check back in a few seconds.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (prefs.bubbleEnabled) KeepAliveJob.scheduleSoon(this)
     }
 
     override fun onDestroy() {
         isRunning = false
         if (instance === this) instance = null
+        // Stopped by the system rather than the user (who turns bubbleEnabled off first): come back soon.
+        if (startedOk && prefs.bubbleEnabled && Settings.canDrawOverlays(this)) KeepAliveJob.scheduleSoon(this)
         main.removeCallbacksAndMessages(null)
         tts?.shutdown()
         tts = null
@@ -215,13 +239,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
      * [capturing] adds the mediaProjection type while a screenshot is being taken.
      */
     private fun goForeground(capturing: Boolean = false): Boolean {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel), NotificationManager.IMPORTANCE_LOW).apply {
-                description = getString(R.string.notif_channel_desc)
-                setShowBadge(false)
-            },
-        )
+        ensureNotificationChannel(this)
         val projection = if (capturing && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         } else {
@@ -1034,7 +1052,7 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
 
     companion object {
         private const val TAG = "OverlayService"
-        private const val CHANNEL_ID = "bubble"
+        const val CHANNEL_ID = "bubble"
         private const val NOTIFICATION_ID = 1
         private const val BRIDGE_NAME = "Android"
         private const val WEBVIEW_RETRY_MS = 15_000L
@@ -1066,6 +1084,16 @@ class OverlayService : Service(), BubbleView.Callbacks, ChatPanelView.Callbacks 
             private set
 
         fun start(context: Context) = startWith(context, ACTION_START)
+
+        /** The low-importance channel for "Bubble is running" (and "tap to bring the bubble back"). */
+        fun ensureNotificationChannel(context: Context) {
+            context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, context.getString(R.string.notif_channel), NotificationManager.IMPORTANCE_LOW).apply {
+                    description = context.getString(R.string.notif_channel_desc)
+                    setShowBadge(false)
+                },
+            )
+        }
 
         /** Start (or wake) the service after a new link token was saved. */
         fun link(context: Context) = startWith(context, ACTION_LINK)

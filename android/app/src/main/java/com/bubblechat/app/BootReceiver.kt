@@ -11,11 +11,14 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         if (!Prefs(context).bubbleEnabled || !Settings.canDrawOverlays(context)) return
+        // Keep watching over the bubble, even if this start is refused.
+        KeepAliveJob.schedule(context)
         try {
             OverlayService.start(context)
         } catch (e: Exception) {
-            // Some OEMs block background starts until the user opens the app once.
+            // Some OEMs (and Android 15+) block background starts: offer a one-tap restore instead.
             Log.w(TAG, "Could not restart the bubble", e)
+            KeepAliveJob.showRestoreNotification(context)
         }
     }
 
